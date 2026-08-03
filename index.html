@@ -488,6 +488,16 @@
         prêt à intégrer dans Zikak_Saisie_Achats_Detail.xlsx.
       </p>
     </div>
+
+    <div class="card">
+      <h2>Maintenance</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        À utiliser seulement si des lignes affichent « producteur supprimé » ou « article supprimé »
+        de façon anormale. Ceci efface uniquement les achats enregistrés — les listes de producteurs
+        et d'articles ne sont pas touchées.
+      </p>
+      <button class="btn btn-danger btn-block" id="btn-reset-lignes" style="min-height:48px; font-size:0.95rem;">Effacer les achats enregistrés</button>
+    </div>
   </section>
 
 </main>
@@ -1081,6 +1091,15 @@ function csvEscape(v){
   const s = String(v ?? '');
   return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
 }
+
+document.getElementById('btn-reset-lignes').addEventListener('click', async ()=>{
+  if(!confirm(`Effacer les ${lignes.length} ligne(s) d'achat enregistrée(s) ? Les producteurs et articles ne sont pas touchés. Cette action est irréversible.`)) return;
+  lignes = [];
+  await save(STORAGE_KEYS.lignes, lignes);
+  renderLedger();
+  renderExportSummary();
+  showToast('Achats effacés ✓');
+});
 
 // ---------------------------------------------------------------
 // Init
