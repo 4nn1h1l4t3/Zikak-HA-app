@@ -1,47 +1,1106 @@
-// ZIKAK — Service worker : cache-first pour un fonctionnement 100% hors-ligne.
-// À chaque mise à jour de l'appli, monte CACHE_VERSION pour forcer le
-// rechargement des fichiers chez tous les marchands qui l'utilisent.
-const CACHE_VERSION = 'zikak-v2';
-const ASSETS = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-];
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>ZIKAK — Carnet numérique</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F4E3D">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ZIKAK">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --green-deep:#1F4E3D;
+    --green-mid:#3D7A5F;
+    --green-pale:#E4EEE7;
+    --clay:#C1622D;
+    --clay-pale:#F3DCC8;
+    --cream:#F6F2E7;
+    --ink:#26241D;
+    --ink-soft:#5A5648;
+    --line:#D8D2BF;
+    --danger:#A63A2F;
+    --white:#FFFDF9;
+    --radius:10px;
+    --shadow:0 1px 2px rgba(38,36,29,0.06), 0 4px 14px rgba(38,36,29,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--cream);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    min-height:100vh;
+  }
+  h1,h2,h3{font-family:'Fraunces', Georgia, serif; margin:0;}
+  button{font-family:inherit;}
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
+  /* ---------- Header ---------- */
+  header.app{
+    background:var(--green-deep);
+    color:var(--white);
+    padding:14px 18px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    box-shadow:var(--shadow);
+    position:sticky; top:0; z-index:20;
+  }
+  .brand{display:flex; align-items:baseline; gap:10px;}
+  .brand .stub{
+    width:14px; height:22px;
+    background:var(--clay);
+    border-radius:2px 6px 6px 2px;
+    display:inline-block;
+  }
+  .brand h1{font-size:1.25rem; font-weight:600; letter-spacing:0.02em;}
+  .brand .sub{font-size:0.72rem; color:var(--green-pale); opacity:0.85; font-family:'IBM Plex Sans';}
+  #savestatus{font-size:0.72rem; color:var(--green-pale); opacity:0; transition:opacity .3s;}
+  #savestatus.show{opacity:0.95;}
+
+  /* ---------- Tabs ---------- */
+  nav.tabs{
+    display:flex;
+    background:var(--white);
+    border-bottom:1px solid var(--line);
+    position:sticky; top:56px; z-index:19;
+    overflow-x:auto;
+  }
+  nav.tabs button{
+    flex:1;
+    min-width:110px;
+    border:none;
+    background:transparent;
+    padding:13px 8px;
+    font-size:0.92rem;
+    font-weight:500;
+    color:var(--ink-soft);
+    cursor:pointer;
+    border-bottom:3px solid transparent;
+  }
+  nav.tabs button.active{
+    color:var(--green-deep);
+    border-bottom-color:var(--clay);
+    font-weight:600;
+  }
+
+  main{max-width:920px; margin:0 auto; padding:18px 14px 90px;}
+  .tabpanel{display:none;}
+  .tabpanel.active{display:block;}
+
+  .card{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .card h2{font-size:1.05rem; color:var(--green-deep); margin-bottom:14px; font-weight:600;}
+
+  /* ---------- Form ---------- */
+  .field{margin-bottom:12px;}
+  .field label{
+    display:block;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+    margin-bottom:5px;
+    font-weight:500;
+  }
+  .field select, .field input{
+    width:100%;
+    padding:12px 12px;
+    font-size:1rem;
+    border:1.5px solid var(--line);
+    border-radius:8px;
+    background:var(--white);
+    color:var(--ink);
+    font-family:inherit;
+    min-height:46px;
+  }
+  .field select:focus, .field input:focus{
+    outline:none;
+    border-color:var(--green-mid);
+  }
+  .row{display:flex; gap:12px; flex-wrap:wrap;}
+  .row > .field{flex:1; min-width:130px;}
+
+  .combo-field{position:relative;}
+  .combo-list{
+    display:none;
+    position:absolute;
+    top:100%; left:0; right:0;
+    margin-top:4px;
+    background:var(--white);
+    border:1.5px solid var(--green-mid);
+    border-radius:8px;
+    box-shadow:var(--shadow);
+    max-height:220px;
+    overflow-y:auto;
+    z-index:30;
+  }
+  .combo-list.show{display:block;}
+  .combo-item{
+    padding:12px 14px;
+    font-size:0.95rem;
+    color:var(--ink);
+    cursor:pointer;
+    border-bottom:1px solid var(--line);
+  }
+  .combo-item:last-child{border-bottom:none;}
+  .combo-item:hover, .combo-item.active{background:var(--green-pale);}
+  .combo-empty{padding:12px 14px; font-size:0.88rem; color:var(--ink-soft);}
+
+  .montant-preview{
+    background:var(--green-pale);
+    border-radius:8px;
+    padding:12px 14px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:14px;
+  }
+  .montant-preview .label{font-size:0.85rem; color:var(--green-deep); font-weight:500;}
+  .montant-preview .value{font-family:'Fraunces'; font-size:1.4rem; font-weight:600; color:var(--green-deep);}
+
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:13px 20px;
+    border-radius:8px;
+    border:none;
+    font-size:0.98rem;
+    font-weight:600;
+    cursor:pointer;
+    min-height:48px;
+  }
+  .btn-primary{background:var(--green-deep); color:var(--white);}
+  .btn-primary:hover{background:var(--green-mid);}
+  .btn-clay{background:var(--clay); color:var(--white);}
+  .btn-ghost{background:transparent; color:var(--ink-soft); border:1.5px solid var(--line);}
+  .btn-danger{background:transparent; color:var(--danger); border:1.5px solid var(--danger); padding:8px 12px; min-height:38px; font-size:0.85rem;}
+  .btn-block{width:100%;}
+  .btn:disabled{opacity:0.5; cursor:not-allowed;}
+
+  /* ---------- Ledger-style log ---------- */
+  .ledger{
+    border-radius:var(--radius);
+    overflow:hidden;
+    border:1px solid var(--line);
+    background:
+      repeating-linear-gradient(var(--white) 0px, var(--white) 47px, var(--line) 47px, var(--line) 48px);
+    position:relative;
+  }
+  .ledger::before{
+    content:"";
+    position:absolute; top:0; bottom:0; left:38px;
+    width:2px; background:var(--clay); opacity:0.45;
+  }
+  .ledger-group-title{
+    padding:10px 14px 10px 50px;
+    font-weight:600;
+    color:var(--green-deep);
+    background:var(--green-pale);
+    font-size:0.9rem;
+    border-bottom:1px solid var(--line);
+  }
+  .ledger-row{
+    display:flex;
+    align-items:center;
+    padding:0 14px 0 50px;
+    height:48px;
+    gap:10px;
+    font-size:0.88rem;
+  }
+  .ledger-row .art{flex:2; color:var(--ink);}
+  .ledger-row .qte{flex:1; color:var(--ink-soft); text-align:right;}
+  .ledger-row .pu{flex:1; color:var(--ink-soft); text-align:right;}
+  .ledger-row .mt{flex:1; text-align:right; font-weight:600; color:var(--ink);}
+  .ledger-row .del{flex:0 0 auto;}
+  .ledger-row .del button{
+    background:none; border:none; color:var(--danger); cursor:pointer; font-size:1.1rem; padding:4px 8px;
+  }
+  .ledger-subtotal{
+    display:flex; justify-content:flex-end; gap:10px;
+    padding:8px 14px 10px 50px;
+    font-size:0.85rem;
+    font-weight:600;
+    color:var(--green-deep);
+    border-bottom:2px solid var(--line);
+    background:var(--cream);
+  }
+
+  .payout-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:13px 14px;
+    background:var(--cream);
+    border:1px solid var(--line);
+    border-radius:8px;
+    margin-bottom:8px;
+  }
+  .payout-row .name{font-weight:600; color:var(--ink); font-size:0.95rem;}
+  .payout-row .amount{font-family:'Fraunces'; font-weight:700; font-size:1.15rem; color:var(--clay);}
+  .grand-total{
+    margin-top:16px;
+    background:var(--green-deep);
+    color:var(--white);
+    border-radius:var(--radius);
+    padding:18px 20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .grand-total .label{font-size:0.85rem; opacity:0.85;}
+  .grand-total .value{font-family:'Fraunces'; font-size:1.9rem; font-weight:700;}
+
+  .empty{
+    padding:34px 20px;
+    text-align:center;
+    color:var(--ink-soft);
+    font-size:0.92rem;
+  }
+  .empty .big{font-size:1.6rem; display:block; margin-bottom:6px;}
+
+  /* ---------- Lists (producteurs / articles) ---------- */
+  .list-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:12px 4px;
+    border-bottom:1px solid var(--line);
+    gap:10px;
+  }
+  .list-item:last-child{border-bottom:none;}
+  .list-item .info{flex:1; min-width:0;}
+  .list-item .name{font-weight:600; color:var(--ink);}
+  .list-item .meta{font-size:0.78rem; color:var(--ink-soft); margin-top:2px; overflow-wrap:anywhere;}
+  .list-item .actions{display:flex; gap:8px; flex:0 0 auto;}
+  .list-item .actions button{
+    background:none; border:1.5px solid var(--line); border-radius:6px;
+    padding:6px 10px; font-size:0.8rem; cursor:pointer; color:var(--ink-soft);
+  }
+  .badge-new{
+    display:inline-block; background:var(--clay-pale); color:var(--clay);
+    font-size:0.68rem; font-weight:600; padding:2px 7px; border-radius:20px; margin-left:6px;
+  }
+
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:var(--white); padding:11px 20px;
+    border-radius:30px; font-size:0.88rem; box-shadow:var(--shadow);
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;
+    z-index:50;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(-6px);}
+
+  .export-summary{
+    display:flex; gap:16px; flex-wrap:wrap; margin:14px 0;
+  }
+  .export-stat{
+    flex:1; min-width:120px;
+    background:var(--green-pale); border-radius:8px; padding:14px;
+  }
+  .export-stat .n{font-family:'Fraunces'; font-size:1.5rem; font-weight:600; color:var(--green-deep);}
+  .export-stat .l{font-size:0.75rem; color:var(--ink-soft);}
+
+  @media (max-width:520px){
+    .brand h1{font-size:1.05rem;}
+    nav.tabs button{font-size:0.82rem; padding:12px 6px;}
+    .ledger-row{font-size:0.8rem;}
+  }
+  :focus-visible{outline:2px solid var(--clay); outline-offset:2px;}
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <span class="stub"></span>
+    <div>
+      <h1>ZIKAK</h1>
+      <div class="sub">Carnet d'achats numérique</div>
+    </div>
+  </div>
+  <div id="savestatus">Enregistré ✓</div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="saisie" class="active">Saisie</button>
+  <button data-tab="producteurs">Producteurs</button>
+  <button data-tab="articles">Articles</button>
+  <button data-tab="export">Export</button>
+</nav>
+
+<main>
+
+  <!-- ===================== SAISIE ===================== -->
+  <section class="tabpanel active" id="tab-saisie">
+    <div class="card">
+      <h2>Nouvel achat</h2>
+      <div class="field">
+        <label for="f-date">Date</label>
+        <input type="date" id="f-date">
+      </div>
+      <div class="field combo-field">
+        <label for="f-producteur-input">Producteur</label>
+        <input type="text" id="f-producteur-input" class="combo-input" autocomplete="off" placeholder="Tape 3 lettres...">
+        <input type="hidden" id="f-producteur">
+        <div class="combo-list" id="f-producteur-list"></div>
+      </div>
+      <div class="field combo-field">
+        <label for="f-article-input">Article</label>
+        <input type="text" id="f-article-input" class="combo-input" autocomplete="off" placeholder="Tape 3 lettres...">
+        <input type="hidden" id="f-article">
+        <div class="combo-list" id="f-article-list"></div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="f-qte">Quantité</label>
+          <input type="number" id="f-qte" inputmode="decimal" step="0.01" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label for="f-prix">Prix unitaire (€)</label>
+          <input type="number" id="f-prix" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+        </div>
+      </div>
+      <div class="montant-preview">
+        <span class="label">Montant de la ligne</span>
+        <span class="value" id="f-montant">0,00 €</span>
+      </div>
+      <button class="btn btn-primary btn-block" id="btn-add-ligne">Ajouter la ligne</button>
+    </div>
+
+    <div class="card">
+      <h2>À régler aujourd'hui</h2>
+      <div id="payout-summary"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="log-title">Achats du jour</h2>
+      <div id="ledger-container"></div>
+      <div class="grand-total">
+        <span class="label">Total à verser — tous producteurs</span>
+        <span class="value" id="grand-total">0,00 €</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PRODUCTEURS ===================== -->
+  <section class="tabpanel" id="tab-producteurs">
+    <div class="card">
+      <h2 id="prod-form-title">Ajouter un producteur</h2>
+      <div class="field">
+        <label for="p-nomaffiche">Nom affiché (carnet) *</label>
+        <input type="text" id="p-nomaffiche" placeholder="ex : Mirlande">
+      </div>
+      <div class="field">
+        <label for="p-nomfacture">Nom officiel (facturation)</label>
+        <input type="text" id="p-nomfacture" placeholder="ex : SUCCES Mirlande — laisser vide si inconnu">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="p-siret">SIRET</label>
+          <input type="text" id="p-siret" placeholder="ex : 123 456 789 00012">
+        </div>
+        <div class="field">
+          <label for="p-tva">Régime TVA</label>
+          <input type="text" id="p-tva" placeholder="TVA non applicable, art. 293 B du CGI">
+        </div>
+      </div>
+      <div class="field">
+        <label for="p-adresse">Adresse</label>
+        <input type="text" id="p-adresse" placeholder="Adresse du producteur">
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="btn-save-prod">Ajouter</button>
+        <button class="btn btn-ghost" id="btn-cancel-prod" style="display:none;">Annuler</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Liste des producteurs</h2>
+      <div id="prod-list"></div>
+    </div>
+  </section>
+
+  <!-- ===================== ARTICLES ===================== -->
+  <section class="tabpanel" id="tab-articles">
+    <div class="card">
+      <h2 id="art-form-title">Ajouter un article</h2>
+      <div class="row">
+        <div class="field">
+          <label for="a-nom">Nom de l'article *</label>
+          <input type="text" id="a-nom" placeholder="ex : Tomates">
+        </div>
+        <div class="field">
+          <label for="a-unite">Unité par défaut</label>
+          <select id="a-unite">
+            <option value="kg">kg</option>
+            <option value="u">u (pièce)</option>
+            <option value="botte">botte</option>
+            <option value="sac">sac</option>
+            <option value="l">l</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="btn-save-art">Ajouter</button>
+        <button class="btn btn-ghost" id="btn-cancel-art" style="display:none;">Annuler</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Liste des articles</h2>
+      <div id="art-list"></div>
+    </div>
+  </section>
+
+  <!-- ===================== EXPORT ===================== -->
+  <section class="tabpanel" id="tab-export">
+    <div class="card">
+      <h2>Exporter en CSV</h2>
+      <div class="row">
+        <div class="field">
+          <label for="e-from">Du</label>
+          <input type="date" id="e-from">
+        </div>
+        <div class="field">
+          <label for="e-to">Au</label>
+          <input type="date" id="e-to">
+        </div>
+      </div>
+      <div class="export-summary">
+        <div class="export-stat"><div class="n" id="e-count">0</div><div class="l">ligne(s)</div></div>
+        <div class="export-stat"><div class="n" id="e-total">0,00 €</div><div class="l">total période</div></div>
+      </div>
+      <button class="btn btn-clay btn-block" id="btn-export">Télécharger le CSV</button>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin-top:10px;">
+        Colonnes : Date, Fournisseur, Produit, Quantité, Unité, Prix unitaire, Montant —
+        prêt à intégrer dans Zikak_Saisie_Achats_Detail.xlsx.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------
+// State
+// ---------------------------------------------------------------
+let producteurs = [];
+let articles = [];
+let lignes = [];
+let editingProducteurId = null;
+let editingArticleId = null;
+
+const STORAGE_KEYS = { producteurs: 'zikak_producteurs', articles: 'zikak_articles', lignes: 'zikak_lignes' };
+
+// ---------------------------------------------------------------
+// Storage helpers
+// ---------------------------------------------------------------
+async function loadAll(){
+  try{
+    const p = localStorage.getItem(STORAGE_KEYS.producteurs);
+    const a = localStorage.getItem(STORAGE_KEYS.articles);
+    const l = localStorage.getItem(STORAGE_KEYS.lignes);
+
+    if(p){
+      producteurs = JSON.parse(p);
+    }else{
+      producteurs = defaultProducteurs();
+      localStorage.setItem(STORAGE_KEYS.producteurs, JSON.stringify(producteurs));
+    }
+
+    if(a){
+      articles = JSON.parse(a);
+    }else{
+      articles = defaultArticles();
+      localStorage.setItem(STORAGE_KEYS.articles, JSON.stringify(articles));
+    }
+
+    lignes = l ? JSON.parse(l) : [];
+  }catch(e){
+    console.error('Erreur de chargement', e);
+    producteurs = defaultProducteurs();
+    articles = defaultArticles();
+    lignes = [];
+  }
+}
+async function save(key, value){
+  try{
+    localStorage.setItem(key, JSON.stringify(value));
+    showToast('Enregistré ✓');
+  }catch(e){
+    console.error("Erreur d'enregistrement", e);
+    showToast("⚠ Échec de l'enregistrement — vérifie l'espace disponible");
+  }
+}
+function defaultProducteurs(){
+  return [
+    {id: uid(), nomAffiche:"Mirlande", nomFacturation:"SUCCES Mirlande", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Ernest", nomFacturation:"Ernest ONIER", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Espérance", nomFacturation:"Espérance Yonel", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Etris", nomFacturation:"ETRIS Pierre", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Carl", nomFacturation:"Carl Micholet", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Ogé", nomFacturation:"ACCEUS OGE", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Wilsoon", nomFacturation:"Wilsoon Fruits et légumes", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Bernadette", nomFacturation:"Bernadette R", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Fabienne", nomFacturation:"Fabienne DENIVAL", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Paolo", nomFacturation:"PAOLO Jean-Daniel", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Daphné", nomFacturation:"Toussaint Daphénie", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Francette", nomFacturation:"SIMON Francette", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Rolande", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Yvrose", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Marcilène", nomFacturation:"MACILENE", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Béatrice", nomFacturation:"Béatrice La pelée", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Noella", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Micania Jean-Pierre", nomFacturation:"MICANIA JEAN-PIERRE", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"James", nomFacturation:"LOUIS James Agriculteur", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Jean-Louis", nomFacturation:"Jean-louis Ketie", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Exali", nomFacturation:"Exali distribution", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Evelyne", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"SARLU", nomFacturation:"SARLU", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Christine", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Marie-Georges", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Mariejo", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Maryse", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Iranie", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Gratia", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Limea", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Marie Alice Micholet", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Paulo", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Divers", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+  ];
+}
+function defaultArticles(){
+  return [
+    {id: uid(), nom:"Ananas", unite:"kg"},
+    {id: uid(), nom:"Aubergines", unite:"kg"},
+    {id: uid(), nom:"Avocats", unite:"kg"},
+    {id: uid(), nom:"Bananes Jaunes", unite:"kg"},
+    {id: uid(), nom:"Bananes Dessert", unite:"kg"},
+    {id: uid(), nom:"Choux Pommés", unite:"kg"},
+    {id: uid(), nom:"Christophines", unite:"kg"},
+    {id: uid(), nom:"Citrons Verts", unite:"kg"},
+    {id: uid(), nom:"Concombres", unite:"kg"},
+    {id: uid(), nom:"Courgettes", unite:"kg"},
+    {id: uid(), nom:"Dachines", unite:"kg"},
+    {id: uid(), nom:"Giraumons", unite:"kg"},
+    {id: uid(), nom:"Gombos", unite:"kg"},
+    {id: uid(), nom:"Groseilles", unite:"kg"},
+    {id: uid(), nom:"Haricots", unite:"kg"},
+    {id: uid(), nom:"Melons", unite:"kg"},
+    {id: uid(), nom:"Melons MQ", unite:"kg"},
+    {id: uid(), nom:"Oignons Peyi", unite:"kg"},
+    {id: uid(), nom:"Papayes Vertes", unite:"kg"},
+    {id: uid(), nom:"Pastèques", unite:"kg"},
+    {id: uid(), nom:"Patates", unite:"kg"},
+    {id: uid(), nom:"Patates Douces", unite:"kg"},
+    {id: uid(), nom:"Persils", unite:"kg"},
+    {id: uid(), nom:"Piments Forts", unite:"kg"},
+    {id: uid(), nom:"Piments Végétaux", unite:"kg"},
+    {id: uid(), nom:"Thyms", unite:"kg"},
+    {id: uid(), nom:"Ti Nain", unite:"kg"},
+    {id: uid(), nom:"Tomates", unite:"kg"},
+    {id: uid(), nom:"Laitue", unite:"sac"},
+    {id: uid(), nom:"Mangues", unite:"kg"},
+    {id: uid(), nom:"Maracujas", unite:"kg"},
+    {id: uid(), nom:"Divers", unite:"kg"},
+  ];
+}
+function uid(){
+  return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+}
+
+// ---------------------------------------------------------------
+// Toast
+// ---------------------------------------------------------------
+let toastTimer = null;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.classList.remove('show'), 1800);
+}
+
+// ---------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tabpanel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+  });
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+// ---------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------
+function fmtEUR(n){
+  return (n||0).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+}
+function todayISO(){
+  const d = new Date();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+function fmtDateFR(iso){
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// ---------------------------------------------------------------
+// SAISIE tab
+// ---------------------------------------------------------------
+const elDate = document.getElementById('f-date');
+const elProd = document.getElementById('f-producteur');
+const elArt  = document.getElementById('f-article');
+const elQte  = document.getElementById('f-qte');
+const elPrix = document.getElementById('f-prix');
+const elMontant = document.getElementById('f-montant');
+
+elDate.value = todayISO();
+
+// ---------------------------------------------------------------
+// Combo — champ de recherche filtrante (tape 3 lettres, insensible aux accents/maj.)
+// ---------------------------------------------------------------
+function stripAccents(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+}
+function setupCombo(inputId, hiddenId, listId, getOptions){
+  const input = document.getElementById(inputId);
+  const hidden = document.getElementById(hiddenId);
+  const list = document.getElementById(listId);
+
+  function render(filterText){
+    const opts = getOptions();
+    const nf = stripAccents(filterText);
+    const filtered = nf ? opts.filter(o=>stripAccents(o.label).includes(nf)) : opts;
+    if(opts.length===0){
+      list.innerHTML = `<div class="combo-empty">Aucune option — ajoute-en une d'abord</div>`;
+    }else if(filtered.length===0){
+      list.innerHTML = `<div class="combo-empty">Aucun résultat</div>`;
+    }else{
+      list.innerHTML = filtered.map(o=>`<div class="combo-item" data-id="${o.id}">${escapeHtml(o.label)}</div>`).join('');
+    }
+    list.classList.add('show');
+  }
+
+  input.addEventListener('focus', ()=> render(input.value));
+  input.addEventListener('input', ()=>{
+    hidden.value = '';
+    render(input.value);
+  });
+  list.addEventListener('click', (e)=>{
+    const item = e.target.closest('.combo-item');
+    if(!item || !item.dataset.id) return;
+    const opt = getOptions().find(o=>o.id===item.dataset.id);
+    if(opt){
+      input.value = opt.label;
+      hidden.value = opt.id;
+    }
+    list.classList.remove('show');
+  });
+
+  return {
+    refresh(){
+      const opts = getOptions();
+      if(hidden.value && !opts.find(o=>o.id===hidden.value)){
+        hidden.value=''; input.value='';
+      }
+      if(!hidden.value){
+        input.placeholder = opts.length ? 'Tape 3 lettres...' : 'Aucune option, ajoute-en une';
+      }
+    }
+  };
+}
+document.addEventListener('click', (e)=>{
+  document.querySelectorAll('.combo-list.show').forEach(l=>{
+    const wrap = l.closest('.combo-field');
+    if(wrap && !wrap.contains(e.target)) l.classList.remove('show');
+  });
 });
 
-// Cache-first : sert le fichier en cache immédiatement (rapide + offline),
-// et va chercher une version plus récente en arrière-plan pour la prochaine fois.
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
-  );
+const comboProd = setupCombo('f-producteur-input', 'f-producteur', 'f-producteur-list',
+  ()=> producteurs.map(p=>({id:p.id, label:p.nomAffiche})));
+const comboArt = setupCombo('f-article-input', 'f-article', 'f-article-list',
+  ()=> articles.map(a=>({id:a.id, label:a.nom})));
+
+function refreshSaisieSelects(){
+  comboProd.refresh();
+  comboArt.refresh();
+}
+
+function updateMontantPreview(){
+  const qte = parseFloat(elQte.value) || 0;
+  const prix = parseFloat(elPrix.value) || 0;
+  elMontant.textContent = fmtEUR(qte*prix);
+}
+elQte.addEventListener('input', updateMontantPreview);
+elPrix.addEventListener('input', updateMontantPreview);
+elDate.addEventListener('change', renderLedger);
+
+document.getElementById('btn-add-ligne').addEventListener('click', async ()=>{
+  const producteurId = elProd.value;
+  const articleId = elArt.value;
+  const qte = parseFloat(elQte.value);
+  const prix = parseFloat(elPrix.value);
+  const date = elDate.value;
+
+  if(!producteurId){ showToast("⚠ Ajoute d'abord un producteur"); return; }
+  if(!articleId){ showToast("⚠ Ajoute d'abord un article"); return; }
+  if(!date){ showToast('⚠ Renseigne une date'); return; }
+  if(!qte || qte<=0){ showToast('⚠ Quantité invalide'); elQte.focus(); return; }
+  if(prix===null || isNaN(prix) || prix<0){ showToast('⚠ Prix invalide'); elPrix.focus(); return; }
+
+  const ligne = {
+    id: uid(), date, producteurId, articleId,
+    qte, prixUnitaire: prix, montant: Math.round(qte*prix*100)/100
+  };
+  lignes.push(ligne);
+  await save(STORAGE_KEYS.lignes, lignes);
+  elQte.value=''; elPrix.value=''; updateMontantPreview();
+  elQte.focus();
+  renderLedger();
 });
+
+function renderPayoutSummary(dayLignes, date){
+  const el = document.getElementById('payout-summary');
+  if(dayLignes.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">💶</span>Rien à régler pour le ${fmtDateFR(date)}.</div>`;
+    return;
+  }
+  const byProd = {};
+  dayLignes.forEach(l=>{ byProd[l.producteurId] = (byProd[l.producteurId]||0) + l.montant; });
+  const rows = Object.keys(byProd).map(pid=>{
+    const p = producteurs.find(x=>x.id===pid);
+    return {nom: p ? p.nomAffiche : '(producteur supprimé)', total: byProd[pid]};
+  }).sort((a,b)=> b.total - a.total);
+  el.innerHTML = rows.map(r=>`
+    <div class="payout-row">
+      <span class="name">${escapeHtml(r.nom)}</span>
+      <span class="amount">${fmtEUR(r.total)}</span>
+    </div>
+  `).join('');
+}
+
+function renderLedger(){
+  const date = elDate.value || todayISO();
+  document.getElementById('log-title').textContent = `Achats du ${fmtDateFR(date)}`;
+  const dayLignes = lignes.filter(l=>l.date===date);
+  const container = document.getElementById('ledger-container');
+  renderPayoutSummary(dayLignes, date);
+
+  if(dayLignes.length===0){
+    container.innerHTML = `<div class="empty"><span class="big">📋</span>Aucun achat enregistré pour cette date.<br>Ajoute ta première ligne ci-dessus.</div>`;
+    document.getElementById('grand-total').textContent = fmtEUR(0);
+    return;
+  }
+
+  // group by producteur
+  const byProd = {};
+  dayLignes.forEach(l=>{
+    if(!byProd[l.producteurId]) byProd[l.producteurId]=[];
+    byProd[l.producteurId].push(l);
+  });
+
+  let html = '<div class="ledger">';
+  let grand = 0;
+  Object.keys(byProd).forEach(pid=>{
+    const p = producteurs.find(x=>x.id===pid);
+    const nom = p ? p.nomAffiche : '(producteur supprimé)';
+    let subtotal = 0;
+    html += `<div class="ledger-group-title">${escapeHtml(nom)}</div>`;
+    byProd[pid].forEach(l=>{
+      const a = articles.find(x=>x.id===l.articleId);
+      const nomArt = a ? a.nom : '(article supprimé)';
+      const unite = a ? a.unite : '';
+      subtotal += l.montant;
+      html += `
+        <div class="ledger-row">
+          <span class="art">${escapeHtml(nomArt)}</span>
+          <span class="qte">${l.qte} ${unite}</span>
+          <span class="pu">${fmtEUR(l.prixUnitaire)}</span>
+          <span class="mt">${fmtEUR(l.montant)}</span>
+          <span class="del"><button data-del="${l.id}" title="Supprimer la ligne">✕</button></span>
+        </div>`;
+    });
+    grand += subtotal;
+    html += `<div class="ledger-subtotal">Sous-total ${escapeHtml(nom)} : ${fmtEUR(subtotal)}</div>`;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+  document.getElementById('grand-total').textContent = fmtEUR(grand);
+
+  container.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Supprimer cette ligne ?')) return;
+      lignes = lignes.filter(l=>l.id!==btn.dataset.del);
+      await save(STORAGE_KEYS.lignes, lignes);
+      renderLedger();
+      renderExportSummary();
+    });
+  });
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------------------------------------------------------------
+// PRODUCTEURS tab
+// ---------------------------------------------------------------
+const pFields = ['p-nomaffiche','p-nomfacture','p-siret','p-tva','p-adresse'];
+
+document.getElementById('btn-save-prod').addEventListener('click', async ()=>{
+  const nomAffiche = document.getElementById('p-nomaffiche').value.trim();
+  if(!nomAffiche){ showToast('⚠ Le nom affiché est obligatoire'); return; }
+  const data = {
+    nomAffiche,
+    nomFacturation: document.getElementById('p-nomfacture').value.trim(),
+    siret: document.getElementById('p-siret').value.trim(),
+    tva: document.getElementById('p-tva').value.trim() || 'TVA non applicable, article 293 B du CGI',
+    adresse: document.getElementById('p-adresse').value.trim(),
+  };
+  if(editingProducteurId){
+    const idx = producteurs.findIndex(p=>p.id===editingProducteurId);
+    if(idx>-1) producteurs[idx] = {...producteurs[idx], ...data};
+    editingProducteurId = null;
+  }else{
+    producteurs.push({id: uid(), ...data});
+  }
+  await save(STORAGE_KEYS.producteurs, producteurs);
+  resetProdForm();
+  refreshSaisieSelects();
+  renderProdList();
+});
+
+document.getElementById('btn-cancel-prod').addEventListener('click', resetProdForm);
+
+function resetProdForm(){
+  pFields.forEach(id=>document.getElementById(id).value='');
+  editingProducteurId = null;
+  document.getElementById('prod-form-title').textContent = 'Ajouter un producteur';
+  document.getElementById('btn-save-prod').textContent = 'Ajouter';
+  document.getElementById('btn-cancel-prod').style.display = 'none';
+}
+
+function renderProdList(){
+  const el = document.getElementById('prod-list');
+  if(producteurs.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">🧑‍🌾</span>Aucun producteur pour l'instant.<br>Ajoute ton premier producteur ci-dessus.</div>`;
+    return;
+  }
+  el.innerHTML = producteurs.map(p=>`
+    <div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(p.nomAffiche)} ${p.nomFacturation ? '' : '<span class="badge-new">nom facture à confirmer</span>'}</div>
+        <div class="meta">${p.nomFacturation ? 'Facturation : '+escapeHtml(p.nomFacturation)+' · ' : ''}${p.siret ? 'SIRET '+escapeHtml(p.siret)+' · ' : ''}${escapeHtml(p.tva)}${p.adresse ? ' · '+escapeHtml(p.adresse) : ''}</div>
+      </div>
+      <div class="actions">
+        <button data-edit="${p.id}">Modifier</button>
+        <button data-del="${p.id}" class="btn-danger" style="border-color:var(--line); color:var(--danger);">Suppr.</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = producteurs.find(x=>x.id===btn.dataset.edit);
+      if(!p) return;
+      document.getElementById('p-nomaffiche').value = p.nomAffiche;
+      document.getElementById('p-nomfacture').value = p.nomFacturation;
+      document.getElementById('p-siret').value = p.siret;
+      document.getElementById('p-tva').value = p.tva;
+      document.getElementById('p-adresse').value = p.adresse;
+      editingProducteurId = p.id;
+      document.getElementById('prod-form-title').textContent = 'Modifier ' + p.nomAffiche;
+      document.getElementById('btn-save-prod').textContent = 'Enregistrer les modifications';
+      document.getElementById('btn-cancel-prod').style.display = 'inline-flex';
+      document.getElementById('p-nomaffiche').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const p = producteurs.find(x=>x.id===btn.dataset.del);
+      const used = lignes.some(l=>l.producteurId===btn.dataset.del);
+      const msg = used
+        ? `${p.nomAffiche} a des achats enregistrés. Le supprimer ne supprime pas l'historique, mais il n'apparaîtra plus dans les listes. Continuer ?`
+        : `Supprimer ${p.nomAffiche} ?`;
+      if(!confirm(msg)) return;
+      producteurs = producteurs.filter(x=>x.id!==btn.dataset.del);
+      await save(STORAGE_KEYS.producteurs, producteurs);
+      refreshSaisieSelects();
+      renderProdList();
+    });
+  });
+}
+
+// ---------------------------------------------------------------
+// ARTICLES tab
+// ---------------------------------------------------------------
+document.getElementById('btn-save-art').addEventListener('click', async ()=>{
+  const nom = document.getElementById('a-nom').value.trim();
+  if(!nom){ showToast("⚠ Le nom de l'article est obligatoire"); return; }
+  const unite = document.getElementById('a-unite').value;
+  if(editingArticleId){
+    const idx = articles.findIndex(a=>a.id===editingArticleId);
+    if(idx>-1) articles[idx] = {...articles[idx], nom, unite};
+    editingArticleId = null;
+  }else{
+    articles.push({id: uid(), nom, unite});
+  }
+  await save(STORAGE_KEYS.articles, articles);
+  resetArtForm();
+  refreshSaisieSelects();
+  renderArtList();
+});
+document.getElementById('btn-cancel-art').addEventListener('click', resetArtForm);
+
+function resetArtForm(){
+  document.getElementById('a-nom').value='';
+  document.getElementById('a-unite').value='kg';
+  editingArticleId = null;
+  document.getElementById('art-form-title').textContent = 'Ajouter un article';
+  document.getElementById('btn-save-art').textContent = 'Ajouter';
+  document.getElementById('btn-cancel-art').style.display = 'none';
+}
+
+function renderArtList(){
+  const el = document.getElementById('art-list');
+  if(articles.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">🥭</span>Aucun article pour l'instant.<br>Ajoute ton premier article ci-dessus.</div>`;
+    return;
+  }
+  el.innerHTML = articles.map(a=>`
+    <div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(a.nom)}</div>
+        <div class="meta">Unité par défaut : ${escapeHtml(a.unite)}</div>
+      </div>
+      <div class="actions">
+        <button data-edit="${a.id}">Modifier</button>
+        <button data-del="${a.id}">Suppr.</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = articles.find(x=>x.id===btn.dataset.edit);
+      if(!a) return;
+      document.getElementById('a-nom').value = a.nom;
+      document.getElementById('a-unite').value = a.unite;
+      editingArticleId = a.id;
+      document.getElementById('art-form-title').textContent = 'Modifier ' + a.nom;
+      document.getElementById('btn-save-art').textContent = 'Enregistrer les modifications';
+      document.getElementById('btn-cancel-art').style.display = 'inline-flex';
+      document.getElementById('a-nom').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const a = articles.find(x=>x.id===btn.dataset.del);
+      if(!confirm(`Supprimer ${a.nom} ?`)) return;
+      articles = articles.filter(x=>x.id!==btn.dataset.del);
+      await save(STORAGE_KEYS.articles, articles);
+      refreshSaisieSelects();
+      renderArtList();
+    });
+  });
+}
+
+// ---------------------------------------------------------------
+// EXPORT tab
+// ---------------------------------------------------------------
+const elFrom = document.getElementById('e-from');
+const elTo = document.getElementById('e-to');
+elFrom.value = todayISO();
+elTo.value = todayISO();
+elFrom.addEventListener('change', renderExportSummary);
+elTo.addEventListener('change', renderExportSummary);
+
+function lignesInRange(){
+  const from = elFrom.value;
+  const to = elTo.value;
+  return lignes.filter(l => (!from || l.date>=from) && (!to || l.date<=to))
+               .sort((a,b)=> a.date.localeCompare(b.date));
+}
+
+function renderExportSummary(){
+  const sel = lignesInRange();
+  document.getElementById('e-count').textContent = sel.length;
+  document.getElementById('e-total').textContent = fmtEUR(sel.reduce((s,l)=>s+l.montant,0));
+}
+
+document.getElementById('btn-export').addEventListener('click', ()=>{
+  const sel = lignesInRange();
+  if(sel.length===0){ showToast('⚠ Aucune ligne sur cette période'); return; }
+  const header = ['Date','Fournisseur','Produit','Quantite','Unite','Prix unitaire','Montant'];
+  const rows = sel.map(l=>{
+    const p = producteurs.find(x=>x.id===l.producteurId);
+    const a = articles.find(x=>x.id===l.articleId);
+    const nomFournisseur = p ? (p.nomFacturation || p.nomAffiche) : '';
+    return [
+      fmtDateFR(l.date),
+      nomFournisseur,
+      a ? a.nom : '',
+      l.qte,
+      a ? a.unite : '',
+      l.prixUnitaire.toFixed(2).replace('.',','),
+      l.montant.toFixed(2).replace('.',',')
+    ];
+  });
+  const csv = [header, ...rows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zikak_export_${elFrom.value}_a_${elTo.value}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Export téléchargé ✓');
+});
+
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+
+// ---------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------
+async function init(){
+  await loadAll();
+  refreshSaisieSelects();
+  renderLedger();
+  renderProdList();
+  renderArtList();
+  renderExportSummary();
+  updateMontantPreview();
+}
+init();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(e=>console.error('SW registration failed', e));
+  });
+}
+</script>
+</body>
+</html>
