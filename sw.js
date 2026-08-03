@@ -1,7 +1,7 @@
 // ZIKAK — Service worker : cache-first pour un fonctionnement 100% hors-ligne.
 // À chaque mise à jour de l'appli, monte CACHE_VERSION pour forcer le
 // rechargement des fichiers chez tous les marchands qui l'utilisent.
-const CACHE_VERSION = 'zikak-v1';
+const CACHE_VERSION = 'zikak-v2';
 const ASSETS = [
   './',
   './index.html',
