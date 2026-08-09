@@ -653,8 +653,7 @@
       </div>
       <button class="btn btn-clay btn-block" id="btn-export">Télécharger le CSV</button>
       <p style="font-size:0.8rem; color:var(--ink-soft); margin-top:10px;">
-        Colonnes : Date, Fournisseur, Produit, Quantité, Unité, Prix unitaire, Montant —
-        prêt à intégrer dans Zikak_Saisie_Achats_Detail.xlsx.
+        Colonnes : Date, Fournisseur, Produit, Quantité, Unité, Prix unitaire, Montant, Origine.
       </p>
     </div>
 
@@ -1756,7 +1755,7 @@ function renderExportSummary(){
 document.getElementById('btn-export').addEventListener('click', ()=>{
   const sel = lignesInRange();
   if(sel.length===0){ showToast('⚠ Aucune ligne sur cette période'); return; }
-  const header = ['Date','Fournisseur','Produit','Quantite','Unite','Prix unitaire','Montant'];
+  const header = ['Date','Fournisseur','Produit','Quantite','Unite','Prix unitaire','Montant','Origine'];
   const rows = sel.map(l=>{
     const p = producteurs.find(x=>x.id===l.producteurId);
     const a = articles.find(x=>x.id===l.articleId);
@@ -1768,7 +1767,8 @@ document.getElementById('btn-export').addEventListener('click', ()=>{
       l.qte,
       a ? a.unite : '',
       l.prixUnitaire.toFixed(2).replace('.',','),
-      l.montant.toFixed(2).replace('.',',')
+      l.montant.toFixed(2).replace('.',','),
+      a ? (a.origine || 'Martinique') : ''
     ];
   });
   const csv = [header, ...rows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
@@ -1841,11 +1841,11 @@ function findOrCreateProducteur(nomCsv){
   producteurs.push(p);
   return {producteur:p, created:true};
 }
-function findOrCreateArticle(nomCsv, uniteCsv){
+function findOrCreateArticle(nomCsv, uniteCsv, origineCsv){
   const nf = stripAccents(nomCsv);
   let a = articles.find(x=> stripAccents(x.nom)===nf);
   if(a) return {article:a, created:false};
-  a = { id: uid(), nom: nomCsv || 'Historique', unite: (uniteCsv||'kg').trim() || 'kg', origine: 'Martinique' };
+  a = { id: uid(), nom: nomCsv || 'Historique', unite: (uniteCsv||'kg').trim() || 'kg', origine: (origineCsv||'').trim() || 'Martinique' };
   articles.push(a);
   return {article:a, created:true};
 }
@@ -1874,6 +1874,7 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
     const prix = parseFrNumber(row['prix unitaire']);
     let montant = parseFrNumber(row['montant']);
     const unite = row['unite'] ?? row['unité'];
+    const origine = row['origine'];
 
     if(!date || !fournisseur || !produit || qte===null || prix===null || qte<=0 || prix<0){
       skippedInvalid++; return;
@@ -1882,7 +1883,7 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
 
     const { producteur:p, created:pc } = findOrCreateProducteur(fournisseur);
     if(pc){ newProd++; nouveauxProducteurs.push(p); }
-    const { article:a, created:ac } = findOrCreateArticle(produit, unite);
+    const { article:a, created:ac } = findOrCreateArticle(produit, unite, origine);
     if(ac){ newArt++; nouveauxArticles.push(a); }
 
     const sig = [date, p.id, a.id, qte, prix].join('|');
