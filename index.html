@@ -343,6 +343,17 @@
   .export-stat .n{font-family:'Fraunces'; font-size:1.5rem; font-weight:600; color:var(--green-deep);}
   .export-stat .l{font-size:0.75rem; color:var(--ink-soft);}
 
+  /* ---------- Écran de connexion ---------- */
+  #login-screen{
+    position:fixed; inset:0; background:var(--cream); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  #login-screen .card{max-width:360px; width:100%;}
+  #login-error{color:var(--danger); font-size:0.85rem; margin-bottom:10px; display:none;}
+  #sync-status{font-size:0.72rem; color:var(--green-pale); opacity:0.85;}
+  body:not(.authed) header.app, body:not(.authed) nav.tabs, body:not(.authed) main{display:none;}
+  body.authed #login-screen{display:none;}
+
   @media (max-width:520px){
     .brand h1{font-size:1.05rem;}
     nav.tabs button{font-size:0.82rem; padding:12px 6px;}
@@ -353,6 +364,26 @@
 </head>
 <body>
 
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+
+<div id="login-screen">
+  <div class="card">
+    <h2 style="margin-bottom:16px;">Connexion ZIKAK</h2>
+    <div class="field">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" autocomplete="username" value="anne.zikak@gmail.com">
+    </div>
+    <div class="field">
+      <label for="login-password">Mot de passe</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <div id="login-error"></div>
+    <button class="btn btn-primary btn-block" id="btn-login">Se connecter</button>
+  </div>
+</div>
+
 <header class="app">
   <div class="brand">
     <span class="stub"></span>
@@ -361,7 +392,8 @@
       <div class="sub">Carnet d'achats numérique</div>
     </div>
   </div>
-  <div id="savestatus">Enregistré ✓</div>
+  <div id="savestatus" class="show">● en ligne</div>
+  <button id="btn-logout" title="Se déconnecter" style="background:none; border:1px solid rgba(255,255,255,0.4); color:var(--white); border-radius:6px; padding:5px 9px; font-size:0.72rem; cursor:pointer;">Déconnexion</button>
 </header>
 
 <nav class="tabs">
@@ -484,6 +516,14 @@
           </select>
         </div>
       </div>
+      <div class="field">
+        <label for="a-origine">Origine (affichée sur la facture)</label>
+        <input type="text" id="a-origine" placeholder="Martinique" value="Martinique">
+        <p style="font-size:0.78rem; color:var(--ink-soft); margin:6px 0 0;">
+          Si l'origine change (ex : Guadeloupe), crée un nouvel article plutôt que de modifier
+          celui-ci — l'origine reste fixe par article.
+        </p>
+      </div>
       <div class="row">
         <button class="btn btn-primary" id="btn-save-art">Ajouter</button>
         <button class="btn btn-ghost" id="btn-cancel-art" style="display:none;">Annuler</button>
@@ -590,9 +630,9 @@
         réinstallation.
       </p>
       <button class="btn btn-primary btn-block" id="btn-backup">Télécharger la sauvegarde (JSON)</button>
-      <p style="font-size:0.8rem; color:var(--ink-soft); margin:14px 0 6px;">Restaurer une sauvegarde :</p>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin:14px 0 6px;">Importer une sauvegarde (ajoute/écrase avec ces données, sur tous les appareils connectés) :</p>
       <input type="file" id="restore-file" accept=".json,application/json" style="margin-bottom:10px;">
-      <button class="btn btn-danger btn-block" id="btn-restore" style="min-height:48px; font-size:0.95rem;">Restaurer (remplace toutes les données actuelles)</button>
+      <button class="btn btn-danger btn-block" id="btn-restore" style="min-height:48px; font-size:0.95rem;">Importer la sauvegarde</button>
     </div>
 
     <div class="card">
@@ -660,104 +700,206 @@ let meta = { soldeInitial: 0 };
 let editingProducteurId = null;
 let editingArticleId = null;
 
-const STORAGE_KEYS = {
-  producteurs: 'zikak_producteurs',
-  articles: 'zikak_articles',
-  lignes: 'zikak_lignes',
-  mouvementsCredit: 'zikak_mouvements_credit',
-  factures: 'zikak_factures',
-  meta: 'zikak_meta',
+// ---------------------------------------------------------------
+// Firebase — l'appli est passée d'un stockage local (IndexedDB, par
+// appareil) à Firestore : une base cloud partagée entre tous les
+// appareils connectés avec le même compte, avec persistance offline
+// intégrée (les écritures faites hors-ligne se synchronisent seules au
+// retour du réseau). Chaque type de donnée est une collection Firestore
+// (un document par producteur/article/achat/etc.), jamais un gros bloc
+// JSON — ça évite toute limite de taille à long terme et permet une
+// synchronisation incrémentale au lieu de tout retransmettre à chaque
+// écriture.
+// ---------------------------------------------------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyDm9dbK_cFbgt9xK0UVPwEzzKgU4Au18Z8",
+  authDomain: "zikak-achats.firebaseapp.com",
+  projectId: "zikak-achats",
+  storageBucket: "zikak-achats.firebasestorage.app",
+  messagingSenderId: "89051370760",
+  appId: "1:89051370760:web:87d195fd5aa647545dc8bd"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence().catch(()=>{ /* onglet multiple ou navigateur non supporté — pas bloquant */ });
+
+const COL = {
+  producteurs: db.collection('producteurs'),
+  articles: db.collection('articles'),
+  lignes: db.collection('lignes'),
+  credits: db.collection('credits'),
+  factures: db.collection('factures'),
+  meta: db.collection('meta'),
 };
 
-// ---------------------------------------------------------------
-// Storage helpers — IndexedDB (avec migration automatique depuis
-// une éventuelle ancienne version localStorage). L'appli devenant la
-// source unique pour la caisse et les factures, on a besoin d'un
-// stockage transactionnel plus fiable que localStorage.
-// ---------------------------------------------------------------
-const DB_NAME = 'zikak_db';
-const DB_STORE = 'kv';
-let _dbPromise = null;
+document.getElementById('btn-login').addEventListener('click', async ()=>{
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if(!email || !password){ errEl.textContent = 'Renseigne email et mot de passe.'; errEl.style.display='block'; return; }
+  try{
+    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    await auth.signInWithEmailAndPassword(email, password);
+  }catch(e){
+    errEl.textContent = "Connexion impossible — vérifie l'email et le mot de passe.";
+    errEl.style.display = 'block';
+  }
+});
 
-function openDB(){
-  if(_dbPromise) return _dbPromise;
-  _dbPromise = new Promise((resolve, reject)=>{
-    if(!('indexedDB' in window)){ reject(new Error('IndexedDB indisponible')); return; }
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = (e)=>{
-      const db = e.target.result;
-      if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'key' });
+window.addEventListener('online', ()=> updateSyncStatus(true));
+window.addEventListener('offline', ()=> updateSyncStatus(false));
+function updateSyncStatus(online){
+  const el = document.getElementById('savestatus');
+  el.textContent = online ? '● en ligne' : '○ hors ligne — sync en attente';
+}
+document.getElementById('btn-logout').addEventListener('click', ()=>{
+  if(!confirm('Se déconnecter de cet appareil ?')) return;
+  auth.signOut();
+});
+
+let appStarted = false;
+auth.onAuthStateChanged(user=>{
+  if(user){
+    document.body.classList.add('authed');
+    if(!appStarted){ appStarted = true; startApp(); }
+  }else{
+    document.body.classList.remove('authed');
+    document.getElementById('login-password').value = '';
+  }
+});
+
+function docId(x){ return x.id; }
+
+// Écoute temps réel : chaque collection met à jour le tableau local et
+// redessine les vues concernées dès qu'un changement arrive — que ce soit
+// depuis cet appareil ou depuis l'autre.
+function onSyncError(e){
+  console.error('Erreur de synchronisation', e);
+  const el = document.getElementById('savestatus');
+  el.textContent = '⚠ synchronisation interrompue';
+  showToast('⚠ Synchronisation interrompue — reconnecte-toi ou recharge la page');
+}
+function attachListeners(){
+  COL.producteurs.onSnapshot(snap=>{
+    producteurs = snap.docs.map(d=>d.data());
+    refreshSaisieSelects(); renderProdList(); renderLedger(); renderCaisse(); renderFacturesList();
+  }, onSyncError);
+  COL.articles.onSnapshot(snap=>{
+    articles = snap.docs.map(d=>d.data());
+    refreshSaisieSelects(); renderArtList(); renderLedger();
+  }, onSyncError);
+  COL.lignes.onSnapshot(snap=>{
+    lignes = snap.docs.map(d=>d.data());
+    renderLedger(); renderExportSummary(); renderCaisse();
+  }, onSyncError);
+  COL.credits.onSnapshot(snap=>{
+    mouvementsCredit = snap.docs.map(d=>d.data());
+    renderCaisse();
+  }, onSyncError);
+  COL.factures.onSnapshot(snap=>{
+    factures = snap.docs.map(d=>d.data());
+    renderFacturesList();
+  }, onSyncError);
+  COL.meta.doc('config').onSnapshot(snap=>{
+    meta.soldeInitial = snap.exists ? (snap.data().soldeInitial || 0) : 0;
+    elSoldeInitial.value = meta.soldeInitial;
+    renderCaisse();
+  }, onSyncError);
+}
+
+// ---------------------------------------------------------------
+// Migration ponctuelle : si cet appareil a des données de l'ancienne
+// version locale (IndexedDB) et que le cloud est encore vide, on
+// propose de les importer une seule fois. Si le cloud a déjà des
+// données (déposées depuis l'autre appareil), on ne fait rien — c'est
+// le cloud qui fait foi.
+async function readLegacyLocalData(){
+  return new Promise((resolve)=>{
+    if(!('indexedDB' in window)){ resolve(null); return; }
+    const req = indexedDB.open('zikak_db', 1);
+    req.onupgradeneeded = ()=>{};
+    req.onerror = ()=> resolve(null);
+    req.onsuccess = ()=>{
+      const legacyDb = req.result;
+      if(!legacyDb.objectStoreNames.contains('kv')){ resolve(null); return; }
+      const tx = legacyDb.transaction('kv', 'readonly');
+      const store = tx.objectStore('kv');
+      const keys = ['zikak_producteurs','zikak_articles','zikak_lignes','zikak_mouvements_credit','zikak_factures','zikak_meta'];
+      const out = {};
+      let remaining = keys.length;
+      keys.forEach(k=>{
+        const r = store.get(k);
+        const done = ()=>{ remaining--; if(remaining===0) resolve(out); };
+        r.onsuccess = ()=>{ out[k] = r.result ? r.result.value : null; done(); };
+        r.onerror = done;
+      });
     };
-    req.onsuccess = ()=> resolve(req.result);
-    req.onerror = ()=> reject(req.error);
-  });
-  return _dbPromise;
-}
-
-async function idbGet(key){
-  const db = await openDB();
-  return new Promise((resolve, reject)=>{
-    const tx = db.transaction(DB_STORE, 'readonly');
-    const req = tx.objectStore(DB_STORE).get(key);
-    req.onsuccess = ()=> resolve(req.result ? req.result.value : undefined);
-    req.onerror = ()=> reject(req.error);
   });
 }
-async function idbSet(key, value){
-  const db = await openDB();
-  return new Promise((resolve, reject)=>{
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put({ key, value });
-    tx.oncomplete = ()=> resolve();
-    tx.onerror = ()=> reject(tx.error);
-  });
-}
-
-// Migration ponctuelle : si une ancienne version localStorage existe et
-// qu'IndexedDB est encore vide pour cette clé, on copie une fois puis on
-// laisse IndexedDB devenir la seule source de vérité.
-async function migrateKeyIfNeeded(key){
-  const existing = await idbGet(key);
-  if(existing !== undefined) return existing;
+async function maybeOfferLegacyMigration(){
+  if(localStorage.getItem('zikak_cloud_migrated')) return;
+  let cloudHasData = false;
   try{
-    const raw = localStorage.getItem(key);
-    if(raw){
-      const parsed = JSON.parse(raw);
-      await idbSet(key, parsed);
-      return parsed;
-    }
-  }catch(e){ console.error('Migration échouée pour', key, e); }
-  return undefined;
-}
+    const snap = await COL.producteurs.limit(1).get();
+    cloudHasData = !snap.empty;
+  }catch(e){ return; } // hors-ligne au premier lancement — on retentera au prochain chargement
+  if(cloudHasData){ localStorage.setItem('zikak_cloud_migrated', '1'); return; }
 
-async function loadAll(){
+  const legacy = await readLegacyLocalData();
+  const legacyProd = legacy && legacy.zikak_producteurs;
+  if(!legacyProd || legacyProd.length===0){
+    // Ni cloud ni appareil n'ont de données : premier démarrage réel, on amorce
+    // avec les listes de producteurs/articles par défaut.
+    await batchWrite(COL.producteurs, defaultProducteurs());
+    await batchWrite(COL.articles, defaultArticles());
+    localStorage.setItem('zikak_cloud_migrated', '1');
+    return;
+  }
+
+  const legacyLignes = legacy.zikak_lignes || [];
+  if(!confirm(`Des données locales ont été trouvées sur cet appareil (${legacyProd.length} producteurs, ${legacyLignes.length} achats). Les importer vers le cloud maintenant ? À faire une seule fois, depuis un seul appareil.`)){
+    return; // on ne marque pas comme migré : proposera de nouveau au prochain chargement
+  }
   try{
-    producteurs = (await migrateKeyIfNeeded(STORAGE_KEYS.producteurs)) ?? null;
-    if(!producteurs){ producteurs = defaultProducteurs(); await idbSet(STORAGE_KEYS.producteurs, producteurs); }
-
-    articles = (await migrateKeyIfNeeded(STORAGE_KEYS.articles)) ?? null;
-    if(!articles){ articles = defaultArticles(); await idbSet(STORAGE_KEYS.articles, articles); }
-
-    lignes = (await migrateKeyIfNeeded(STORAGE_KEYS.lignes)) ?? [];
-    mouvementsCredit = (await migrateKeyIfNeeded(STORAGE_KEYS.mouvementsCredit)) ?? [];
-    factures = (await migrateKeyIfNeeded(STORAGE_KEYS.factures)) ?? [];
-    meta = (await migrateKeyIfNeeded(STORAGE_KEYS.meta)) ?? { soldeInitial: 0 };
+    await batchWrite(COL.producteurs, legacyProd);
+    await batchWrite(COL.articles, legacy.zikak_articles || []);
+    await batchWrite(COL.lignes, legacyLignes);
+    await batchWrite(COL.credits, legacy.zikak_mouvements_credit || []);
+    await batchWrite(COL.factures, legacy.zikak_factures || []);
+    await COL.meta.doc('config').set({ soldeInitial: (legacy.zikak_meta && legacy.zikak_meta.soldeInitial) || 0 });
+    localStorage.setItem('zikak_cloud_migrated', '1');
+    showToast('Données locales migrées vers le cloud ✓');
   }catch(e){
-    console.error('Erreur de chargement', e);
-    producteurs = defaultProducteurs();
-    articles = defaultArticles();
-    lignes = []; mouvementsCredit = []; factures = [];
-    meta = { soldeInitial: 0 };
+    console.error('Migration échouée', e);
+    showToast('⚠ Migration échouée — réessaie plus tard');
   }
 }
-async function save(key, value){
-  try{
-    await idbSet(key, value);
-    showToast('Enregistré ✓');
-  }catch(e){
-    console.error("Erreur d'enregistrement", e);
-    showToast("⚠ Échec de l'enregistrement — réessaie");
+async function batchWrite(col, items){
+  for(let i=0; i<items.length; i+=400){
+    const chunk = items.slice(i, i+400);
+    const batch = db.batch();
+    chunk.forEach(item=> batch.set(col.doc(docId(item)), item));
+    await batch.commit();
   }
+}
+async function batchDelete(col, ids){
+  for(let i=0; i<ids.length; i+=400){
+    const chunk = ids.slice(i, i+400);
+    const batch = db.batch();
+    chunk.forEach(id=> batch.delete(col.doc(id)));
+    await batch.commit();
+  }
+}
+
+async function startApp(){
+  if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  updateSyncStatus(navigator.onLine);
+  attachListeners();
+  await maybeOfferLegacyMigration();
+  refreshSaisieSelects();
+  document.getElementById('c-date').value = todayISO();
 }
 function defaultProducteurs(){
   return [
@@ -798,38 +940,38 @@ function defaultProducteurs(){
 }
 function defaultArticles(){
   return [
-    {id: uid(), nom:"Ananas", unite:"kg"},
-    {id: uid(), nom:"Aubergines", unite:"kg"},
-    {id: uid(), nom:"Avocats", unite:"kg"},
-    {id: uid(), nom:"Bananes Jaunes", unite:"kg"},
-    {id: uid(), nom:"Bananes Dessert", unite:"kg"},
-    {id: uid(), nom:"Choux Pommés", unite:"kg"},
-    {id: uid(), nom:"Christophines", unite:"kg"},
-    {id: uid(), nom:"Citrons Verts", unite:"kg"},
-    {id: uid(), nom:"Concombres", unite:"kg"},
-    {id: uid(), nom:"Courgettes", unite:"kg"},
-    {id: uid(), nom:"Dachines", unite:"kg"},
-    {id: uid(), nom:"Giraumons", unite:"kg"},
-    {id: uid(), nom:"Gombos", unite:"kg"},
-    {id: uid(), nom:"Groseilles", unite:"kg"},
-    {id: uid(), nom:"Haricots", unite:"kg"},
-    {id: uid(), nom:"Melons", unite:"kg"},
-    {id: uid(), nom:"Melons MQ", unite:"kg"},
-    {id: uid(), nom:"Oignons Peyi", unite:"kg"},
-    {id: uid(), nom:"Papayes Vertes", unite:"kg"},
-    {id: uid(), nom:"Pastèques", unite:"kg"},
-    {id: uid(), nom:"Patates", unite:"kg"},
-    {id: uid(), nom:"Patates Douces", unite:"kg"},
-    {id: uid(), nom:"Persils", unite:"kg"},
-    {id: uid(), nom:"Piments Forts", unite:"kg"},
-    {id: uid(), nom:"Piments Végétaux", unite:"kg"},
-    {id: uid(), nom:"Thyms", unite:"kg"},
-    {id: uid(), nom:"Ti Nain", unite:"kg"},
-    {id: uid(), nom:"Tomates", unite:"kg"},
-    {id: uid(), nom:"Laitue", unite:"sac"},
-    {id: uid(), nom:"Mangues", unite:"kg"},
-    {id: uid(), nom:"Maracujas", unite:"kg"},
-    {id: uid(), nom:"Divers", unite:"kg"},
+    {id: uid(), nom:"Ananas", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Aubergines", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Avocats", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Bananes Jaunes", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Bananes Dessert", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Choux Pommés", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Christophines", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Citrons Verts", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Concombres", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Courgettes", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Dachines", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Giraumons", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Gombos", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Groseilles", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Haricots", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Melons", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Melons MQ", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Oignons Peyi", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Papayes Vertes", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Pastèques", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Patates", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Patates Douces", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Persils", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Piments Forts", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Piments Végétaux", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Thyms", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Ti Nain", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Tomates", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Laitue", unite:"sac", origine:"Martinique"},
+    {id: uid(), nom:"Mangues", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Maracujas", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Divers", unite:"kg", origine:"Martinique"},
   ];
 }
 function uid(){
@@ -988,12 +1130,12 @@ document.getElementById('btn-add-ligne').addEventListener('click', async ()=>{
     id: uid(), date, producteurId, articleId,
     qte, prixUnitaire: prix, montant: Math.round(qte*prix*100)/100
   };
-  lignes.push(ligne);
-  await save(STORAGE_KEYS.lignes, lignes);
+  try{
+    await COL.lignes.doc(ligne.id).set(ligne);
+    showToast('Enregistré ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); return; }
   elQte.value=''; elPrix.value=''; updateMontantPreview();
   elQte.focus();
-  renderLedger();
-  renderCaisse();
 });
 
 function renderPayoutSummary(dayLignes, date){
@@ -1067,11 +1209,8 @@ function renderLedger(){
   container.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!confirm('Supprimer cette ligne ?')) return;
-      lignes = lignes.filter(l=>l.id!==btn.dataset.del);
-      await save(STORAGE_KEYS.lignes, lignes);
-      renderLedger();
-      renderExportSummary();
-      renderCaisse();
+      try{ await COL.lignes.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
     });
   });
 }
@@ -1088,24 +1227,20 @@ const pFields = ['p-nomaffiche','p-nomfacture','p-siret','p-tva','p-adresse'];
 document.getElementById('btn-save-prod').addEventListener('click', async ()=>{
   const nomAffiche = document.getElementById('p-nomaffiche').value.trim();
   if(!nomAffiche){ showToast('⚠ Le nom affiché est obligatoire'); return; }
+  const id = editingProducteurId || uid();
   const data = {
-    nomAffiche,
+    id, nomAffiche,
     nomFacturation: document.getElementById('p-nomfacture').value.trim(),
     siret: document.getElementById('p-siret').value.trim(),
     tva: document.getElementById('p-tva').value.trim() || 'TVA non applicable, article 293 B du CGI',
     adresse: document.getElementById('p-adresse').value.trim(),
   };
-  if(editingProducteurId){
-    const idx = producteurs.findIndex(p=>p.id===editingProducteurId);
-    if(idx>-1) producteurs[idx] = {...producteurs[idx], ...data};
-    editingProducteurId = null;
-  }else{
-    producteurs.push({id: uid(), ...data});
-  }
-  await save(STORAGE_KEYS.producteurs, producteurs);
+  try{
+    await COL.producteurs.doc(id).set(data);
+    showToast('Enregistré ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); return; }
+  editingProducteurId = null;
   resetProdForm();
-  refreshSaisieSelects();
-  renderProdList();
 });
 
 document.getElementById('btn-cancel-prod').addEventListener('click', resetProdForm);
@@ -1161,10 +1296,8 @@ function renderProdList(){
         ? `${p.nomAffiche} a des achats enregistrés. Le supprimer ne supprime pas l'historique, mais il n'apparaîtra plus dans les listes. Continuer ?`
         : `Supprimer ${p.nomAffiche} ?`;
       if(!confirm(msg)) return;
-      producteurs = producteurs.filter(x=>x.id!==btn.dataset.del);
-      await save(STORAGE_KEYS.producteurs, producteurs);
-      refreshSaisieSelects();
-      renderProdList();
+      try{ await COL.producteurs.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
     });
   });
 }
@@ -1176,23 +1309,21 @@ document.getElementById('btn-save-art').addEventListener('click', async ()=>{
   const nom = document.getElementById('a-nom').value.trim();
   if(!nom){ showToast("⚠ Le nom de l'article est obligatoire"); return; }
   const unite = document.getElementById('a-unite').value;
-  if(editingArticleId){
-    const idx = articles.findIndex(a=>a.id===editingArticleId);
-    if(idx>-1) articles[idx] = {...articles[idx], nom, unite};
-    editingArticleId = null;
-  }else{
-    articles.push({id: uid(), nom, unite});
-  }
-  await save(STORAGE_KEYS.articles, articles);
+  const origine = document.getElementById('a-origine').value.trim() || 'Martinique';
+  const id = editingArticleId || uid();
+  try{
+    await COL.articles.doc(id).set({ id, nom, unite, origine });
+    showToast('Enregistré ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); return; }
+  editingArticleId = null;
   resetArtForm();
-  refreshSaisieSelects();
-  renderArtList();
 });
 document.getElementById('btn-cancel-art').addEventListener('click', resetArtForm);
 
 function resetArtForm(){
   document.getElementById('a-nom').value='';
   document.getElementById('a-unite').value='kg';
+  document.getElementById('a-origine').value='Martinique';
   editingArticleId = null;
   document.getElementById('art-form-title').textContent = 'Ajouter un article';
   document.getElementById('btn-save-art').textContent = 'Ajouter';
@@ -1209,7 +1340,7 @@ function renderArtList(){
     <div class="list-item">
       <div class="info">
         <div class="name">${escapeHtml(a.nom)}</div>
-        <div class="meta">Unité par défaut : ${escapeHtml(a.unite)}</div>
+        <div class="meta">Unité par défaut : ${escapeHtml(a.unite)} · Origine : ${escapeHtml(a.origine || 'Martinique')}</div>
       </div>
       <div class="actions">
         <button data-edit="${a.id}">Modifier</button>
@@ -1224,6 +1355,7 @@ function renderArtList(){
       if(!a) return;
       document.getElementById('a-nom').value = a.nom;
       document.getElementById('a-unite').value = a.unite;
+      document.getElementById('a-origine').value = a.origine || 'Martinique';
       editingArticleId = a.id;
       document.getElementById('art-form-title').textContent = 'Modifier ' + a.nom;
       document.getElementById('btn-save-art').textContent = 'Enregistrer les modifications';
@@ -1235,10 +1367,8 @@ function renderArtList(){
     btn.addEventListener('click', async ()=>{
       const a = articles.find(x=>x.id===btn.dataset.del);
       if(!confirm(`Supprimer ${a.nom} ?`)) return;
-      articles = articles.filter(x=>x.id!==btn.dataset.del);
-      await save(STORAGE_KEYS.articles, articles);
-      refreshSaisieSelects();
-      renderArtList();
+      try{ await COL.articles.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
     });
   });
 }
@@ -1253,9 +1383,9 @@ elSoldeInitial.value = meta.soldeInitial || 0;
 document.getElementById('c-date').value = todayISO();
 
 elSoldeInitial.addEventListener('change', async ()=>{
-  meta.soldeInitial = parseFloat(elSoldeInitial.value) || 0;
-  await save(STORAGE_KEYS.meta, meta);
-  renderCaisse();
+  const soldeInitial = parseFloat(elSoldeInitial.value) || 0;
+  try{ await COL.meta.doc('config').set({ soldeInitial }, { merge: true }); }
+  catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); }
 });
 elCFrom.addEventListener('change', renderCaisse);
 elCTo.addEventListener('change', renderCaisse);
@@ -1295,11 +1425,12 @@ document.getElementById('btn-add-credit').addEventListener('click', async ()=>{
   const note = document.getElementById('c-note').value.trim();
   if(!date){ showToast('⚠ Renseigne une date'); return; }
   if(!montant || montant<=0){ showToast('⚠ Montant invalide'); return; }
-  mouvementsCredit.push({ id: uid(), date, montant: Math.round(montant*100)/100, note });
-  await save(STORAGE_KEYS.mouvementsCredit, mouvementsCredit);
-  document.getElementById('c-montant').value=''; document.getElementById('c-note').value='';
-  renderCaisse();
-  showToast('Crédit ajouté ✓');
+  const credit = { id: uid(), date, montant: Math.round(montant*100)/100, note };
+  try{
+    await COL.credits.doc(credit.id).set(credit);
+    document.getElementById('c-montant').value=''; document.getElementById('c-note').value='';
+    showToast('Crédit ajouté ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); }
 });
 
 // Calcule le solde cumulé pour chaque mouvement (chronologique, sur tout
@@ -1342,9 +1473,8 @@ function renderCaisse(){
   el.querySelectorAll('[data-del-credit]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!confirm('Supprimer ce crédit ?')) return;
-      mouvementsCredit = mouvementsCredit.filter(c=>c.id!==btn.dataset.delCredit);
-      await save(STORAGE_KEYS.mouvementsCredit, mouvementsCredit);
-      renderCaisse();
+      try{ await COL.credits.doc(btn.dataset.delCredit).delete(); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
     });
   });
 }
@@ -1388,17 +1518,25 @@ const ACHETEUR = {
 // `factures` pour l'année en cours — jamais d'un compteur stocké à part.
 // Ça élimine tout risque de désynchronisation (ex : appli fermée entre deux
 // sauvegardes) qui pourrait faire réattribuer un numéro déjà utilisé.
-function nextFactureNumero(){
+// La numérotation ET la création de la facture se font dans une seule
+// transaction Firestore : soit les deux réussissent, soit aucune. Le
+// serveur arbitre lui-même si les deux appareils demandent un numéro au
+// même moment — impossible d'obtenir deux fois le même numéro, y compris
+// en usage simultané multi-appareils. Nécessite une connexion (une
+// transaction ne peut pas s'exécuter hors-ligne).
+async function genererEtEnregistrerFacture(factureSansNumero){
   const year = new Date().getFullYear();
-  const prefix = `AF-${year}-`;
-  let max = 0;
-  factures.forEach(f=>{
-    if(f.numero && f.numero.startsWith(prefix)){
-      const n = parseInt(f.numero.slice(prefix.length), 10);
-      if(!isNaN(n) && n>max) max = n;
-    }
+  const counterRef = COL.meta.doc('factureCounter');
+  return db.runTransaction(async (tx)=>{
+    const snap = await tx.get(counterRef);
+    const data = snap.exists ? snap.data() : {};
+    const n = (data[year] || 0) + 1;
+    const numero = `AF-${year}-${String(n).padStart(3,'0')}`;
+    const facture = { ...factureSansNumero, numero };
+    tx.set(counterRef, { ...data, [year]: n }, { merge: true });
+    tx.set(COL.factures.doc(facture.id), facture);
+    return facture;
   });
-  return prefix + String(max+1).padStart(3,'0');
 }
 
 document.getElementById('btn-generer-facture').addEventListener('click', async ()=>{
@@ -1419,7 +1557,7 @@ document.getElementById('btn-generer-facture').addEventListener('click', async (
       const a = articles.find(x=>x.id===l.articleId);
       return {
         date: l.date,
-        designation: (a ? a.nom : 'Article supprimé') + ' — ' + l.qte + ' ' + (a?a.unite:'') + ' × ' + fmtEUR(l.prixUnitaire),
+        designation: (a ? a.nom + (a.origine ? ' (Origine : ' + a.origine + ')' : '') : 'Article supprimé') + ' — ' + l.qte + ' ' + (a?a.unite:'') + ' × ' + fmtEUR(l.prixUnitaire),
         montant: l.montant,
       };
     });
@@ -1429,21 +1567,20 @@ document.getElementById('btn-generer-facture').addEventListener('click', async (
   btn.disabled = true;
   try{
     const total = Math.round(lignesFacture.reduce((s,l)=>s+l.montant,0)*100)/100;
-    const numero = nextFactureNumero();
-    const facture = {
-      id: uid(), numero, producteurId,
+    const facture = await genererEtEnregistrerFacture({
+      id: uid(), producteurId,
       nomFacturationSnapshot: p.nomFacturation,
       periodeDebut: from, periodeFin: to,
       dateEmission: todayISO(),
       lignes: lignesFacture, total,
       tva: p.tva || 'TVA non applicable, article 293 B du CGI',
       annulee: false,
-    };
-    factures.push(facture);
-    await save(STORAGE_KEYS.factures, factures);
-    renderFacturesList();
-    showToast('Facture ' + numero + ' générée ✓');
+    });
+    showToast('Facture ' + facture.numero + ' générée ✓');
     ouvrirFacturePourImpression(facture);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Génération impossible — vérifie ta connexion et réessaie');
   } finally {
     btn.disabled = false;
   }
@@ -1540,10 +1677,8 @@ function renderFacturesList(){
   el.querySelectorAll('[data-void]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!confirm("Marquer cette facture comme annulée ? Le numéro reste utilisé (jamais réattribué), conformément aux règles de numérotation.")) return;
-      const f = factures.find(x=>x.id===btn.dataset.void);
-      if(f) f.annulee = true;
-      await save(STORAGE_KEYS.factures, factures);
-      renderFacturesList();
+      try{ await COL.factures.doc(btn.dataset.void).update({ annulee: true }); }
+      catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); }
     });
   });
 }
@@ -1578,28 +1713,21 @@ document.getElementById('btn-restore').addEventListener('click', async ()=>{
   if(backup.app !== 'zikak' || !Array.isArray(backup.producteurs)){
     showToast('⚠ Ce fichier ne ressemble pas à une sauvegarde Zikak'); return;
   }
-  if(!confirm(`Restaurer cette sauvegarde du ${backup.exporteLe ? fmtDateFR(backup.exporteLe.slice(0,10)) : '?'} ? Toutes les données actuelles de l'appli (producteurs, articles, achats, caisse, factures) seront remplacées. Cette action est irréversible.`)) return;
+  if(!confirm(`Importer cette sauvegarde du ${backup.exporteLe ? fmtDateFR(backup.exporteLe.slice(0,10)) : '?'} ? Comme la base est maintenant partagée en ligne, ceci ajoute/écrase avec ces données sur TOUS les appareils connectés, immédiatement. Ça n'efface PAS ce qui existe déjà en ligne et qui ne serait pas dans ce fichier (ex : achats saisis depuis la sauvegarde).`)) return;
 
-  producteurs = backup.producteurs || [];
-  articles = backup.articles || [];
-  lignes = backup.lignes || [];
-  mouvementsCredit = backup.mouvementsCredit || [];
-  factures = backup.factures || [];
-  meta = backup.meta || { soldeInitial: 0 };
-
-  await save(STORAGE_KEYS.producteurs, producteurs);
-  await save(STORAGE_KEYS.articles, articles);
-  await save(STORAGE_KEYS.lignes, lignes);
-  await save(STORAGE_KEYS.mouvementsCredit, mouvementsCredit);
-  await save(STORAGE_KEYS.factures, factures);
-  await save(STORAGE_KEYS.meta, meta);
-
-  refreshSaisieSelects();
-  renderProdList(); renderArtList(); renderLedger(); renderExportSummary();
-  elSoldeInitial.value = meta.soldeInitial || 0;
-  renderCaisse(); renderFacturesList();
-  fileInput.value = '';
-  showToast('Sauvegarde restaurée ✓');
+  try{
+    await batchWrite(COL.producteurs, backup.producteurs || []);
+    await batchWrite(COL.articles, backup.articles || []);
+    await batchWrite(COL.lignes, backup.lignes || []);
+    await batchWrite(COL.credits, backup.mouvementsCredit || []);
+    await batchWrite(COL.factures, backup.factures || []);
+    if(backup.meta) await COL.meta.doc('config').set({ soldeInitial: backup.meta.soldeInitial || 0 }, { merge: true });
+    fileInput.value = '';
+    showToast('Sauvegarde importée ✓');
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de l\'import — vérifie ta connexion et réessaie');
+  }
 });
 
 // ---------------------------------------------------------------
@@ -1717,7 +1845,7 @@ function findOrCreateArticle(nomCsv, uniteCsv){
   const nf = stripAccents(nomCsv);
   let a = articles.find(x=> stripAccents(x.nom)===nf);
   if(a) return {article:a, created:false};
-  a = { id: uid(), nom: nomCsv || 'Historique', unite: (uniteCsv||'kg').trim() || 'kg' };
+  a = { id: uid(), nom: nomCsv || 'Historique', unite: (uniteCsv||'kg').trim() || 'kg', origine: 'Martinique' };
   articles.push(a);
   return {article:a, created:true};
 }
@@ -1734,6 +1862,9 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
 
   let imported=0, skippedDup=0, skippedInvalid=0, newProd=0, newArt=0;
   const existingSig = new Set(lignes.map(l=> [l.date,l.producteurId,l.articleId,l.qte,l.prixUnitaire].join('|')));
+  const nouveauxProducteurs = [];
+  const nouveauxArticles = [];
+  const nouvellesLignes = [];
 
   rows.forEach(row=>{
     const date = parseFrDate(row['date']);
@@ -1750,24 +1881,27 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
     if(montant===null) montant = Math.round(qte*prix*100)/100;
 
     const { producteur:p, created:pc } = findOrCreateProducteur(fournisseur);
-    if(pc) newProd++;
+    if(pc){ newProd++; nouveauxProducteurs.push(p); }
     const { article:a, created:ac } = findOrCreateArticle(produit, unite);
-    if(ac) newArt++;
+    if(ac){ newArt++; nouveauxArticles.push(a); }
 
     const sig = [date, p.id, a.id, qte, prix].join('|');
     if(existingSig.has(sig)){ skippedDup++; return; }
     existingSig.add(sig);
 
-    lignes.push({ id: uid(), date, producteurId: p.id, articleId: a.id, qte, prixUnitaire: prix, montant });
+    nouvellesLignes.push({ id: uid(), date, producteurId: p.id, articleId: a.id, qte, prixUnitaire: prix, montant });
     imported++;
   });
 
-  await save(STORAGE_KEYS.producteurs, producteurs);
-  await save(STORAGE_KEYS.articles, articles);
-  await save(STORAGE_KEYS.lignes, lignes);
-
-  refreshSaisieSelects();
-  renderProdList(); renderArtList(); renderLedger(); renderExportSummary(); renderCaisse();
+  try{
+    await batchWrite(COL.producteurs, nouveauxProducteurs);
+    await batchWrite(COL.articles, nouveauxArticles);
+    await batchWrite(COL.lignes, nouvellesLignes);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de l\'import — vérifie ta connexion et réessaie');
+    return;
+  }
 
   summaryEl.innerHTML = `${imported} ligne(s) importée(s) · ${skippedDup} doublon(s) ignoré(s)` +
     (skippedInvalid ? ` · ${skippedInvalid} ligne(s) invalide(s) ignorée(s)` : '') +
@@ -1778,37 +1912,20 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
 });
 
 document.getElementById('btn-reset-lignes').addEventListener('click', async ()=>{
-  if(!confirm(`Effacer les ${lignes.length} ligne(s) d'achat enregistrée(s) ? Les producteurs et articles ne sont pas touchés. Cette action est irréversible.`)) return;
-  lignes = [];
-  await save(STORAGE_KEYS.lignes, lignes);
-  renderLedger();
-  renderExportSummary();
-  showToast('Achats effacés ✓');
+  if(!confirm(`Effacer les ${lignes.length} ligne(s) d'achat enregistrée(s) sur TOUS les appareils connectés ? Les producteurs et articles ne sont pas touchés. Cette action est irréversible.`)) return;
+  try{
+    await batchDelete(COL.lignes, lignes.map(l=>l.id));
+    showToast('Achats effacés ✓');
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de la suppression — vérifie ta connexion et réessaie');
+  }
 });
 
 // ---------------------------------------------------------------
-// Init
+// Init — le vrai démarrage se fait dans startApp(), déclenché par
+// auth.onAuthStateChanged() une fois connecté (voir plus haut).
 // ---------------------------------------------------------------
-async function init(){
-  await loadAll();
-  // Demande au navigateur de ne pas évincer les données sous pression de
-  // stockage — important maintenant que l'appli porte la caisse et les
-  // factures. Échoue silencieusement sur les navigateurs qui ne le supportent
-  // pas (iOS Safari notamment) : pas bloquant, juste une protection en plus.
-  if(navigator.storage && navigator.storage.persist){
-    navigator.storage.persist().catch(()=>{});
-  }
-  refreshSaisieSelects();
-  renderLedger();
-  renderProdList();
-  renderArtList();
-  renderExportSummary();
-  updateMontantPreview();
-  elSoldeInitial.value = meta.soldeInitial || 0;
-  renderCaisse();
-  renderFacturesList();
-}
-init();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
