@@ -582,6 +582,20 @@
   <!-- ===================== EXPORT ===================== -->
   <section class="tabpanel" id="tab-export">
     <div class="card">
+      <h2>Sauvegarde complète</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Contrairement aux exports CSV ci-dessous (achats et caisse seulement), cette sauvegarde
+        contient tout : producteurs, articles, achats, caisse et factures émises. À faire
+        régulièrement — c'est le seul filet de sécurité en cas de perte du téléphone ou de
+        réinstallation.
+      </p>
+      <button class="btn btn-primary btn-block" id="btn-backup">Télécharger la sauvegarde (JSON)</button>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin:14px 0 6px;">Restaurer une sauvegarde :</p>
+      <input type="file" id="restore-file" accept=".json,application/json" style="margin-bottom:10px;">
+      <button class="btn btn-danger btn-block" id="btn-restore" style="min-height:48px; font-size:0.95rem;">Restaurer (remplace toutes les données actuelles)</button>
+    </div>
+
+    <div class="card">
       <h2>Exporter en CSV</h2>
       <div class="row">
         <div class="field">
@@ -602,6 +616,20 @@
         Colonnes : Date, Fournisseur, Produit, Quantité, Unité, Prix unitaire, Montant —
         prêt à intégrer dans Zikak_Saisie_Achats_Detail.xlsx.
       </p>
+    </div>
+
+    <div class="card">
+      <h2>Importer un CSV (historique)</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Réimporte un CSV au même format que l'export (Date;Fournisseur;Produit;Quantité;Unité;
+        Prix unitaire;Montant). Les producteurs/articles inconnus sont créés automatiquement
+        (à vérifier ensuite dans leurs onglets respectifs). Les lignes identiques à une ligne
+        déjà présente (même date + producteur + article + quantité + prix) sont ignorées pour
+        éviter les doublons.
+      </p>
+      <input type="file" id="import-file" accept=".csv,text/csv" style="margin-bottom:10px;">
+      <button class="btn btn-primary btn-block" id="btn-import">Importer le CSV</button>
+      <div id="import-summary" style="font-size:0.85rem; color:var(--ink-soft); margin-top:10px;"></div>
     </div>
 
     <div class="card">
@@ -628,7 +656,7 @@ let articles = [];
 let lignes = [];
 let mouvementsCredit = [];
 let factures = [];
-let meta = { soldeInitial: 0, factureCounter: {} };
+let meta = { soldeInitial: 0 };
 let editingProducteurId = null;
 let editingArticleId = null;
 
@@ -713,13 +741,13 @@ async function loadAll(){
     lignes = (await migrateKeyIfNeeded(STORAGE_KEYS.lignes)) ?? [];
     mouvementsCredit = (await migrateKeyIfNeeded(STORAGE_KEYS.mouvementsCredit)) ?? [];
     factures = (await migrateKeyIfNeeded(STORAGE_KEYS.factures)) ?? [];
-    meta = (await migrateKeyIfNeeded(STORAGE_KEYS.meta)) ?? { soldeInitial: 0, factureCounter: {} };
+    meta = (await migrateKeyIfNeeded(STORAGE_KEYS.meta)) ?? { soldeInitial: 0 };
   }catch(e){
     console.error('Erreur de chargement', e);
     producteurs = defaultProducteurs();
     articles = defaultArticles();
     lignes = []; mouvementsCredit = []; factures = [];
-    meta = { soldeInitial: 0, factureCounter: {} };
+    meta = { soldeInitial: 0 };
   }
 }
 async function save(key, value){
@@ -867,7 +895,7 @@ elDate.value = todayISO();
 // Combo — champ de recherche filtrante (tape 3 lettres, insensible aux accents/maj.)
 // ---------------------------------------------------------------
 function stripAccents(s){
-  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
 }
 function setupCombo(inputId, hiddenId, listId, getOptions){
   const input = document.getElementById(inputId);
@@ -1243,6 +1271,7 @@ function debitsFromLignes(){
     byKey[key].montant += l.montant;
   });
   return Object.values(byKey).map(x=>({
+    id: 'debit-' + x.date + '-' + x.producteurId,
     date: x.date, type: 'debit', producteurId: x.producteurId,
     montant: Math.round(x.montant * 100) / 100,
   }));
@@ -1273,21 +1302,25 @@ document.getElementById('btn-add-credit').addEventListener('click', async ()=>{
   showToast('Crédit ajouté ✓');
 });
 
-function renderCaisse(){
-  const all = allMouvements();
+// Calcule le solde cumulé pour chaque mouvement (chronologique, sur tout
+// l'historique) et retourne { rows, running } où `rows` ne garde que les
+// mouvements dans [from, to] et `running` est le solde après le dernier
+// mouvement (= solde actuel), indépendamment du filtre. Partagé entre le
+// rendu de l'onglet et l'export CSV pour éviter deux implémentations.
+function mouvementsAvecSolde(from, to){
   let running = meta.soldeInitial || 0;
-  all.forEach(m=> running += (m.type==='credit' ? m.montant : -m.montant));
-  document.getElementById('c-solde-actuel').textContent = fmtEUR(running);
-
-  const from = elCFrom.value, to = elCTo.value;
-  // Le solde cumulé affiché tient toujours compte de tout l'historique
-  // (même hors période filtrée), seul l'affichage des lignes est filtré.
-  let cumul = meta.soldeInitial || 0;
   const rows = [];
-  all.forEach(m=>{
-    cumul += (m.type==='credit' ? m.montant : -m.montant);
-    if((!from || m.date>=from) && (!to || m.date<=to)) rows.push({...m, solde: cumul});
+  allMouvements().forEach(m=>{
+    running += (m.type==='credit' ? m.montant : -m.montant);
+    if((!from || m.date>=from) && (!to || m.date<=to)) rows.push({...m, solde: running});
   });
+  return { rows, running };
+}
+
+function renderCaisse(){
+  const from = elCFrom.value, to = elCTo.value;
+  const { rows, running } = mouvementsAvecSolde(from, to);
+  document.getElementById('c-solde-actuel').textContent = fmtEUR(running);
 
   const el = document.getElementById('caisse-ledger');
   if(rows.length===0){
@@ -1318,12 +1351,7 @@ function renderCaisse(){
 
 document.getElementById('btn-export-caisse').addEventListener('click', ()=>{
   const from = elCFrom.value, to = elCTo.value;
-  let cumul = meta.soldeInitial || 0;
-  const rows = [];
-  allMouvements().forEach(m=>{
-    cumul += (m.type==='credit' ? m.montant : -m.montant);
-    if((!from || m.date>=from) && (!to || m.date<=to)) rows.push({...m, solde: cumul});
-  });
+  const { rows } = mouvementsAvecSolde(from, to);
   if(rows.length===0){ showToast('⚠ Aucun mouvement sur cette période'); return; }
   const header = ['Date','Type','Libelle','Debit','Credit','Solde'];
   const csvRows = rows.map(m=>[
@@ -1356,14 +1384,25 @@ const ACHETEUR = {
   siret: '843 897 265 00016',
 };
 
+// Le numéro de facture est dérivé du plus grand numéro déjà présent dans
+// `factures` pour l'année en cours — jamais d'un compteur stocké à part.
+// Ça élimine tout risque de désynchronisation (ex : appli fermée entre deux
+// sauvegardes) qui pourrait faire réattribuer un numéro déjà utilisé.
 function nextFactureNumero(){
   const year = new Date().getFullYear();
-  const n = (meta.factureCounter[year] || 0) + 1;
-  meta.factureCounter[year] = n;
-  return `AF-${year}-${String(n).padStart(3,'0')}`;
+  const prefix = `AF-${year}-`;
+  let max = 0;
+  factures.forEach(f=>{
+    if(f.numero && f.numero.startsWith(prefix)){
+      const n = parseInt(f.numero.slice(prefix.length), 10);
+      if(!isNaN(n) && n>max) max = n;
+    }
+  });
+  return prefix + String(max+1).padStart(3,'0');
 }
 
 document.getElementById('btn-generer-facture').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btn-generer-facture');
   const producteurId = document.getElementById('fa-producteur').value;
   const from = document.getElementById('fa-from').value;
   const to = document.getElementById('fa-to').value;
@@ -1387,23 +1426,27 @@ document.getElementById('btn-generer-facture').addEventListener('click', async (
 
   if(lignesFacture.length===0){ showToast('⚠ Aucun achat pour ce producteur sur cette période'); return; }
 
-  const total = Math.round(lignesFacture.reduce((s,l)=>s+l.montant,0)*100)/100;
-  const numero = nextFactureNumero();
-  const facture = {
-    id: uid(), numero, producteurId,
-    nomFacturationSnapshot: p.nomFacturation,
-    periodeDebut: from, periodeFin: to,
-    dateEmission: todayISO(),
-    lignes: lignesFacture, total,
-    tva: p.tva || 'TVA non applicable, article 293 B du CGI',
-    annulee: false,
-  };
-  factures.push(facture);
-  await save(STORAGE_KEYS.factures, factures);
-  await save(STORAGE_KEYS.meta, meta);
-  renderFacturesList();
-  showToast('Facture ' + numero + ' générée ✓');
-  ouvrirFacturePourImpression(facture);
+  btn.disabled = true;
+  try{
+    const total = Math.round(lignesFacture.reduce((s,l)=>s+l.montant,0)*100)/100;
+    const numero = nextFactureNumero();
+    const facture = {
+      id: uid(), numero, producteurId,
+      nomFacturationSnapshot: p.nomFacturation,
+      periodeDebut: from, periodeFin: to,
+      dateEmission: todayISO(),
+      lignes: lignesFacture, total,
+      tva: p.tva || 'TVA non applicable, article 293 B du CGI',
+      annulee: false,
+    };
+    factures.push(facture);
+    await save(STORAGE_KEYS.factures, factures);
+    renderFacturesList();
+    showToast('Facture ' + numero + ' générée ✓');
+    ouvrirFacturePourImpression(facture);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 function ouvrirFacturePourImpression(f){
@@ -1506,6 +1549,60 @@ function renderFacturesList(){
 }
 
 // ---------------------------------------------------------------
+// SAUVEGARDE COMPLÈTE (JSON) — le seul filet de sécurité couvrant
+// producteurs/articles/factures en plus des achats et de la caisse.
+// ---------------------------------------------------------------
+document.getElementById('btn-backup').addEventListener('click', ()=>{
+  const backup = {
+    app: 'zikak', version: 1, exporteLe: new Date().toISOString(),
+    producteurs, articles, lignes, mouvementsCredit, factures, meta,
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zikak_sauvegarde_${todayISO()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Sauvegarde téléchargée ✓');
+});
+
+document.getElementById('btn-restore').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('restore-file');
+  const file = fileInput.files[0];
+  if(!file){ showToast('⚠ Choisis un fichier de sauvegarde'); return; }
+  let backup;
+  try{
+    backup = JSON.parse(await file.text());
+  }catch(e){ showToast('⚠ Fichier illisible — ce n\'est pas un JSON valide'); return; }
+  if(backup.app !== 'zikak' || !Array.isArray(backup.producteurs)){
+    showToast('⚠ Ce fichier ne ressemble pas à une sauvegarde Zikak'); return;
+  }
+  if(!confirm(`Restaurer cette sauvegarde du ${backup.exporteLe ? fmtDateFR(backup.exporteLe.slice(0,10)) : '?'} ? Toutes les données actuelles de l'appli (producteurs, articles, achats, caisse, factures) seront remplacées. Cette action est irréversible.`)) return;
+
+  producteurs = backup.producteurs || [];
+  articles = backup.articles || [];
+  lignes = backup.lignes || [];
+  mouvementsCredit = backup.mouvementsCredit || [];
+  factures = backup.factures || [];
+  meta = backup.meta || { soldeInitial: 0 };
+
+  await save(STORAGE_KEYS.producteurs, producteurs);
+  await save(STORAGE_KEYS.articles, articles);
+  await save(STORAGE_KEYS.lignes, lignes);
+  await save(STORAGE_KEYS.mouvementsCredit, mouvementsCredit);
+  await save(STORAGE_KEYS.factures, factures);
+  await save(STORAGE_KEYS.meta, meta);
+
+  refreshSaisieSelects();
+  renderProdList(); renderArtList(); renderLedger(); renderExportSummary();
+  elSoldeInitial.value = meta.soldeInitial || 0;
+  renderCaisse(); renderFacturesList();
+  fileInput.value = '';
+  showToast('Sauvegarde restaurée ✓');
+});
+
+// ---------------------------------------------------------------
 // EXPORT tab
 // ---------------------------------------------------------------
 const elFrom = document.getElementById('e-from');
@@ -1562,6 +1659,124 @@ function csvEscape(v){
   return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
 }
 
+// ---------------------------------------------------------------
+// IMPORT CSV (historique)
+// ---------------------------------------------------------------
+function parseCsv(text){
+  // Supprime un éventuel BOM, détecte le séparateur (';' ou ',').
+  text = text.replace(/^\uFEFF/, '');
+  const lines = text.split(/\r\n|\n|\r/).filter(l=>l.trim().length>0);
+  if(lines.length===0) return [];
+  const sep = lines[0].includes(';') ? ';' : ',';
+  function parseLine(line){
+    const out = []; let cur=''; let inQ=false;
+    for(let i=0;i<line.length;i++){
+      const c = line[i];
+      if(inQ){
+        if(c==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else inQ=false; }
+        else cur+=c;
+      }else{
+        if(c==='"') inQ=true;
+        else if(c===sep){ out.push(cur); cur=''; }
+        else cur+=c;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+  const header = parseLine(lines[0]).map(h=>h.trim().toLowerCase());
+  return lines.slice(1).map(l=>{
+    const cells = parseLine(l);
+    const row = {};
+    header.forEach((h,i)=> row[h]=(cells[i]??'').trim());
+    return row;
+  });
+}
+function parseFrDate(s){
+  s = String(s||'').trim();
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return '';
+}
+function parseFrNumber(s){
+  s = String(s||'').trim().replace(/\s/g,'').replace(',','.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function findOrCreateProducteur(nomCsv){
+  const nf = stripAccents(nomCsv);
+  let p = producteurs.find(x=> stripAccents(x.nomFacturation)===nf || stripAccents(x.nomAffiche)===nf);
+  if(p) return {producteur:p, created:false};
+  p = { id: uid(), nomAffiche: nomCsv, nomFacturation: '', siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:'' };
+  producteurs.push(p);
+  return {producteur:p, created:true};
+}
+function findOrCreateArticle(nomCsv, uniteCsv){
+  const nf = stripAccents(nomCsv);
+  let a = articles.find(x=> stripAccents(x.nom)===nf);
+  if(a) return {article:a, created:false};
+  a = { id: uid(), nom: nomCsv || 'Historique', unite: (uniteCsv||'kg').trim() || 'kg' };
+  articles.push(a);
+  return {article:a, created:true};
+}
+
+document.getElementById('btn-import').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('import-file');
+  const summaryEl = document.getElementById('import-summary');
+  const file = fileInput.files[0];
+  if(!file){ showToast('⚠ Choisis un fichier CSV'); return; }
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if(rows.length===0){ showToast('⚠ Fichier vide ou illisible'); return; }
+
+  let imported=0, skippedDup=0, skippedInvalid=0, newProd=0, newArt=0;
+  const existingSig = new Set(lignes.map(l=> [l.date,l.producteurId,l.articleId,l.qte,l.prixUnitaire].join('|')));
+
+  rows.forEach(row=>{
+    const date = parseFrDate(row['date']);
+    const fournisseur = row['fournisseur'];
+    const produit = row['produit'];
+    const qte = parseFrNumber(row['quantite'] ?? row['quantité']);
+    const prix = parseFrNumber(row['prix unitaire']);
+    let montant = parseFrNumber(row['montant']);
+    const unite = row['unite'] ?? row['unité'];
+
+    if(!date || !fournisseur || !produit || qte===null || prix===null || qte<=0 || prix<0){
+      skippedInvalid++; return;
+    }
+    if(montant===null) montant = Math.round(qte*prix*100)/100;
+
+    const { producteur:p, created:pc } = findOrCreateProducteur(fournisseur);
+    if(pc) newProd++;
+    const { article:a, created:ac } = findOrCreateArticle(produit, unite);
+    if(ac) newArt++;
+
+    const sig = [date, p.id, a.id, qte, prix].join('|');
+    if(existingSig.has(sig)){ skippedDup++; return; }
+    existingSig.add(sig);
+
+    lignes.push({ id: uid(), date, producteurId: p.id, articleId: a.id, qte, prixUnitaire: prix, montant });
+    imported++;
+  });
+
+  await save(STORAGE_KEYS.producteurs, producteurs);
+  await save(STORAGE_KEYS.articles, articles);
+  await save(STORAGE_KEYS.lignes, lignes);
+
+  refreshSaisieSelects();
+  renderProdList(); renderArtList(); renderLedger(); renderExportSummary(); renderCaisse();
+
+  summaryEl.innerHTML = `${imported} ligne(s) importée(s) · ${skippedDup} doublon(s) ignoré(s)` +
+    (skippedInvalid ? ` · ${skippedInvalid} ligne(s) invalide(s) ignorée(s)` : '') +
+    (newProd ? ` · ${newProd} nouveau(x) producteur(s) créé(s) (nom de facturation à confirmer)` : '') +
+    (newArt ? ` · ${newArt} nouvel(aux) article(s) créé(s)` : '');
+  fileInput.value = '';
+  showToast('Import terminé ✓');
+});
+
 document.getElementById('btn-reset-lignes').addEventListener('click', async ()=>{
   if(!confirm(`Effacer les ${lignes.length} ligne(s) d'achat enregistrée(s) ? Les producteurs et articles ne sont pas touchés. Cette action est irréversible.`)) return;
   lignes = [];
@@ -1576,6 +1791,13 @@ document.getElementById('btn-reset-lignes').addEventListener('click', async ()=>
 // ---------------------------------------------------------------
 async function init(){
   await loadAll();
+  // Demande au navigateur de ne pas évincer les données sous pression de
+  // stockage — important maintenant que l'appli porte la caisse et les
+  // factures. Échoue silencieusement sur les navigateurs qui ne le supportent
+  // pas (iOS Safari notamment) : pas bloquant, juste une protection en plus.
+  if(navigator.storage && navigator.storage.persist){
+    navigator.storage.persist().catch(()=>{});
+  }
   refreshSaisieSelects();
   renderLedger();
   renderProdList();
