@@ -1,61 +1,2016 @@
-// ZIKAK — Service worker : cache-first pour un fonctionnement 100% hors-ligne.
-// À chaque mise à jour de l'appli, monte CACHE_VERSION pour forcer le
-// rechargement des fichiers chez tous les marchands qui l'utilisent.
-const CACHE_VERSION = 'zikak-v11';
-const CROSS_ORIGIN_ASSETS = [
-  'https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js',
-  'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js',
-  'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js',
-];
-const ASSETS = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  ...CROSS_ORIGIN_ASSETS,
-];
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>ZIKAK — Carnet numérique</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F4E3D">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ZIKAK">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --green-deep:#1F4E3D;
+    --green-mid:#3D7A5F;
+    --green-pale:#E4EEE7;
+    --clay:#C1622D;
+    --clay-pale:#F3DCC8;
+    --cream:#F6F2E7;
+    --ink:#26241D;
+    --ink-soft:#5A5648;
+    --line:#D8D2BF;
+    --danger:#A63A2F;
+    --white:#FFFDF9;
+    --radius:10px;
+    --shadow:0 1px 2px rgba(38,36,29,0.06), 0 4px 14px rgba(38,36,29,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--cream);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    min-height:100vh;
+  }
+  h1,h2,h3{font-family:'Fraunces', Georgia, serif; margin:0;}
+  button{font-family:inherit;}
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
+  /* ---------- Header ---------- */
+  header.app{
+    background:var(--green-deep);
+    color:var(--white);
+    padding:14px 18px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    box-shadow:var(--shadow);
+    position:sticky; top:0; z-index:20;
+  }
+  .brand{display:flex; align-items:baseline; gap:10px;}
+  .brand .stub{
+    width:14px; height:22px;
+    background:var(--clay);
+    border-radius:2px 6px 6px 2px;
+    display:inline-block;
+  }
+  .brand h1{font-size:1.25rem; font-weight:600; letter-spacing:0.02em;}
+  .brand .sub{font-size:0.72rem; color:var(--green-pale); opacity:0.85; font-family:'IBM Plex Sans';}
+  #savestatus{font-size:0.72rem; color:var(--green-pale); opacity:0; transition:opacity .3s;}
+  #savestatus.show{opacity:0.95;}
+
+  /* ---------- Tabs ---------- */
+  nav.tabs{
+    display:flex;
+    background:var(--white);
+    border-bottom:1px solid var(--line);
+    position:sticky; top:56px; z-index:19;
+    overflow-x:auto;
+  }
+  nav.tabs button{
+    flex:1;
+    min-width:110px;
+    border:none;
+    background:transparent;
+    padding:13px 8px;
+    font-size:0.92rem;
+    font-weight:500;
+    color:var(--ink-soft);
+    cursor:pointer;
+    border-bottom:3px solid transparent;
+  }
+  nav.tabs button.active{
+    color:var(--green-deep);
+    border-bottom-color:var(--clay);
+    font-weight:600;
+  }
+
+  main{max-width:920px; margin:0 auto; padding:18px 14px 90px;}
+  .tabpanel{display:none;}
+  .tabpanel.active{display:block;}
+
+  .card{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .card h2{font-size:1.05rem; color:var(--green-deep); margin-bottom:14px; font-weight:600;}
+
+  /* ---------- Form ---------- */
+  .field{margin-bottom:12px;}
+  .field label{
+    display:block;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+    margin-bottom:5px;
+    font-weight:500;
+  }
+  .field select, .field input{
+    width:100%;
+    padding:12px 12px;
+    font-size:1rem;
+    border:1.5px solid var(--line);
+    border-radius:8px;
+    background:var(--white);
+    color:var(--ink);
+    font-family:inherit;
+    min-height:46px;
+  }
+  .field select:focus, .field input:focus{
+    outline:none;
+    border-color:var(--green-mid);
+  }
+  .row{display:flex; gap:12px; flex-wrap:wrap;}
+  .row > .field{flex:1; min-width:130px;}
+
+  .combo-field{position:relative;}
+  .combo-list{
+    display:none;
+    position:absolute;
+    top:100%; left:0; right:0;
+    margin-top:4px;
+    background:var(--white);
+    border:1.5px solid var(--green-mid);
+    border-radius:8px;
+    box-shadow:var(--shadow);
+    max-height:220px;
+    overflow-y:auto;
+    z-index:30;
+  }
+  .combo-list.show{display:block;}
+  .combo-item{
+    padding:12px 14px;
+    font-size:0.95rem;
+    color:var(--ink);
+    cursor:pointer;
+    border-bottom:1px solid var(--line);
+  }
+  .combo-item:last-child{border-bottom:none;}
+  .combo-item:hover, .combo-item.active{background:var(--green-pale);}
+  .combo-empty{padding:12px 14px; font-size:0.88rem; color:var(--ink-soft);}
+
+  .montant-preview{
+    background:var(--green-pale);
+    border-radius:8px;
+    padding:12px 14px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:14px;
+  }
+  .montant-preview .label{font-size:0.85rem; color:var(--green-deep); font-weight:500;}
+  .montant-preview .value{font-family:'Fraunces'; font-size:1.4rem; font-weight:600; color:var(--green-deep);}
+
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:13px 20px;
+    border-radius:8px;
+    border:none;
+    font-size:0.98rem;
+    font-weight:600;
+    cursor:pointer;
+    min-height:48px;
+  }
+  .btn-primary{background:var(--green-deep); color:var(--white);}
+  .btn-primary:hover{background:var(--green-mid);}
+  .btn-clay{background:var(--clay); color:var(--white);}
+  .btn-ghost{background:transparent; color:var(--ink-soft); border:1.5px solid var(--line);}
+  .btn-danger{background:transparent; color:var(--danger); border:1.5px solid var(--danger); padding:8px 12px; min-height:38px; font-size:0.85rem;}
+  .btn-block{width:100%;}
+  .btn:disabled{opacity:0.5; cursor:not-allowed;}
+
+  /* ---------- Ledger-style log ---------- */
+  .ledger{
+    border-radius:var(--radius);
+    overflow:hidden;
+    border:1px solid var(--line);
+    background:
+      repeating-linear-gradient(var(--white) 0px, var(--white) 47px, var(--line) 47px, var(--line) 48px);
+    position:relative;
+  }
+  .ledger::before{
+    content:"";
+    position:absolute; top:0; bottom:0; left:38px;
+    width:2px; background:var(--clay); opacity:0.45;
+  }
+  .ledger-group-title{
+    padding:10px 14px 10px 50px;
+    font-weight:600;
+    color:var(--green-deep);
+    background:var(--green-pale);
+    font-size:0.9rem;
+    border-bottom:1px solid var(--line);
+  }
+  .ledger-row{
+    display:flex;
+    align-items:center;
+    padding:0 14px 0 50px;
+    height:48px;
+    gap:10px;
+    font-size:0.88rem;
+  }
+  .ledger-row .art{flex:2; color:var(--ink);}
+  .ledger-row .qte{flex:1; color:var(--ink-soft); text-align:right;}
+  .ledger-row .pu{flex:1; color:var(--ink-soft); text-align:right;}
+  .ledger-row .mt{flex:1; text-align:right; font-weight:600; color:var(--ink);}
+  .ledger-row .del{flex:0 0 auto;}
+  .ledger-row .del button{
+    background:none; border:none; color:var(--danger); cursor:pointer; font-size:1.1rem; padding:4px 8px;
+  }
+  .ledger-subtotal{
+    display:flex; justify-content:flex-end; gap:10px;
+    padding:8px 14px 10px 50px;
+    font-size:0.85rem;
+    font-weight:600;
+    color:var(--green-deep);
+    border-bottom:2px solid var(--line);
+    background:var(--cream);
+  }
+
+  .payout-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:13px 14px;
+    background:var(--cream);
+    border:1px solid var(--line);
+    border-radius:8px;
+    margin-bottom:8px;
+  }
+  .payout-row .name{font-weight:600; color:var(--ink); font-size:0.95rem;}
+  .payout-row .amount{font-family:'Fraunces'; font-weight:700; font-size:1.15rem; color:var(--clay);}
+  .grand-total{
+    margin-top:16px;
+    background:var(--green-deep);
+    color:var(--white);
+    border-radius:var(--radius);
+    padding:18px 20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .grand-total .label{font-size:0.85rem; opacity:0.85;}
+  .grand-total .value{font-family:'Fraunces'; font-size:1.9rem; font-weight:700;}
+
+  /* ---------- Caisse ---------- */
+  .mvt-row{
+    display:flex; align-items:center; gap:10px;
+    padding:11px 4px; border-bottom:1px solid var(--line); font-size:0.86rem;
+  }
+  .mvt-row:last-child{border-bottom:none;}
+  .mvt-row .mvt-date{flex:0 0 62px; color:var(--ink-soft);}
+  .mvt-row .mvt-label{flex:1; min-width:0; overflow-wrap:anywhere;}
+  .mvt-row .mvt-amt{flex:0 0 90px; text-align:right; font-weight:600;}
+  .mvt-row .mvt-amt.debit{color:var(--danger);}
+  .mvt-row .mvt-amt.credit{color:var(--green-mid);}
+  .mvt-row .mvt-solde{flex:0 0 90px; text-align:right; color:var(--ink-soft);}
+  .mvt-row .mvt-del{flex:0 0 auto;}
+  .mvt-row .mvt-del button{background:none; border:none; color:var(--danger); cursor:pointer; font-size:1rem; padding:2px 6px;}
+  .mvt-head{
+    display:flex; gap:10px; padding:0 4px 8px; font-size:0.72rem; font-weight:600;
+    color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid var(--line);
+  }
+  .mvt-head span:nth-child(1){flex:0 0 62px;}
+  .mvt-head span:nth-child(2){flex:1;}
+  .mvt-head span:nth-child(3){flex:0 0 90px; text-align:right;}
+  .mvt-head span:nth-child(4){flex:0 0 90px; text-align:right;}
+
+  .fa-status{
+    display:inline-block; font-size:0.68rem; font-weight:600; padding:2px 8px; border-radius:20px;
+  }
+  .fa-status.ok{background:var(--green-pale); color:var(--green-deep);}
+  .fa-status.void{background:var(--clay-pale); color:var(--danger);}
+
+  .empty{
+    padding:34px 20px;
+    text-align:center;
+    color:var(--ink-soft);
+    font-size:0.92rem;
+  }
+  .empty .big{font-size:1.6rem; display:block; margin-bottom:6px;}
+
+  /* ---------- Lists (producteurs / articles) ---------- */
+  .list-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:12px 4px;
+    border-bottom:1px solid var(--line);
+    gap:10px;
+  }
+  .list-item:last-child{border-bottom:none;}
+  .list-item .info{flex:1; min-width:0;}
+  .list-item .name{font-weight:600; color:var(--ink);}
+  .list-item .meta{font-size:0.78rem; color:var(--ink-soft); margin-top:2px; overflow-wrap:anywhere;}
+  .list-item .actions{display:flex; gap:8px; flex:0 0 auto;}
+  .list-item .actions button{
+    background:none; border:1.5px solid var(--line); border-radius:6px;
+    padding:6px 10px; font-size:0.8rem; cursor:pointer; color:var(--ink-soft);
+  }
+  .badge-new{
+    display:inline-block; background:var(--clay-pale); color:var(--clay);
+    font-size:0.68rem; font-weight:600; padding:2px 7px; border-radius:20px; margin-left:6px;
+  }
+
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:var(--white); padding:11px 20px;
+    border-radius:30px; font-size:0.88rem; box-shadow:var(--shadow);
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;
+    z-index:50;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(-6px);}
+
+  .export-summary{
+    display:flex; gap:16px; flex-wrap:wrap; margin:14px 0;
+  }
+  .export-stat{
+    flex:1; min-width:120px;
+    background:var(--green-pale); border-radius:8px; padding:14px;
+  }
+  .export-stat .n{font-family:'Fraunces'; font-size:1.5rem; font-weight:600; color:var(--green-deep);}
+  .export-stat .l{font-size:0.75rem; color:var(--ink-soft);}
+
+  /* ---------- Écran de connexion ---------- */
+  #login-screen{
+    position:fixed; inset:0; background:var(--cream); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  #login-screen .card{max-width:360px; width:100%;}
+  #login-error{color:var(--danger); font-size:0.85rem; margin-bottom:10px; display:none;}
+  #sync-status{font-size:0.72rem; color:var(--green-pale); opacity:0.85;}
+  body:not(.authed) header.app, body:not(.authed) nav.tabs, body:not(.authed) main{display:none;}
+  body.authed #login-screen{display:none;}
+
+  @media (max-width:520px){
+    .brand h1{font-size:1.05rem;}
+    nav.tabs button{font-size:0.82rem; padding:12px 6px;}
+    .ledger-row{font-size:0.8rem;}
+  }
+  :focus-visible{outline:2px solid var(--clay); outline-offset:2px;}
+</style>
+</head>
+<body>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+
+<div id="login-screen">
+  <div class="card">
+    <h2 style="margin-bottom:16px;">Connexion ZIKAK</h2>
+    <div class="field">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" autocomplete="username" value="anne.zikak@gmail.com">
+    </div>
+    <div class="field">
+      <label for="login-password">Mot de passe</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <div id="login-error"></div>
+    <button class="btn btn-primary btn-block" id="btn-login">Se connecter</button>
+  </div>
+</div>
+
+<header class="app">
+  <div class="brand">
+    <span class="stub"></span>
+    <div>
+      <h1>ZIKAK</h1>
+      <div class="sub">Carnet d'achats numérique</div>
+    </div>
+  </div>
+  <div id="savestatus" class="show">● en ligne</div>
+  <button id="btn-logout" title="Se déconnecter" style="background:none; border:1px solid rgba(255,255,255,0.4); color:var(--white); border-radius:6px; padding:5px 9px; font-size:0.72rem; cursor:pointer;">Déconnexion</button>
+</header>
+
+<nav class="tabs">
+  <button data-tab="saisie" class="active">Saisie</button>
+  <button data-tab="producteurs">Producteurs</button>
+  <button data-tab="articles">Articles</button>
+  <button data-tab="caisse">Caisse</button>
+  <button data-tab="factures">Factures</button>
+  <button data-tab="export">Export</button>
+</nav>
+
+<main>
+
+  <!-- ===================== SAISIE ===================== -->
+  <section class="tabpanel active" id="tab-saisie">
+    <div class="card">
+      <h2>Nouvel achat</h2>
+      <div class="field">
+        <label for="f-date">Date</label>
+        <input type="date" id="f-date">
+      </div>
+      <div class="field combo-field">
+        <label for="f-producteur-input">Producteur</label>
+        <input type="text" id="f-producteur-input" class="combo-input" autocomplete="off" placeholder="Tape 3 lettres...">
+        <input type="hidden" id="f-producteur">
+        <div class="combo-list" id="f-producteur-list"></div>
+      </div>
+      <div class="field combo-field">
+        <label for="f-article-input">Article</label>
+        <input type="text" id="f-article-input" class="combo-input" autocomplete="off" placeholder="Tape 3 lettres...">
+        <input type="hidden" id="f-article">
+        <div class="combo-list" id="f-article-list"></div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="f-qte">Quantité</label>
+          <input type="number" id="f-qte" inputmode="decimal" step="0.01" min="0" placeholder="0">
+        </div>
+        <div class="field">
+          <label for="f-prix">Prix unitaire (€)</label>
+          <input type="number" id="f-prix" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+        </div>
+      </div>
+      <div class="montant-preview">
+        <span class="label">Montant de la ligne</span>
+        <span class="value" id="f-montant">0,00 €</span>
+      </div>
+      <button class="btn btn-primary btn-block" id="btn-add-ligne">Ajouter la ligne</button>
+    </div>
+
+    <div class="card">
+      <h2>À régler aujourd'hui</h2>
+      <div id="payout-summary"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="log-title">Achats du jour</h2>
+      <div id="ledger-container"></div>
+      <div class="grand-total">
+        <span class="label">Total à verser — tous producteurs</span>
+        <span class="value" id="grand-total">0,00 €</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PRODUCTEURS ===================== -->
+  <section class="tabpanel" id="tab-producteurs">
+    <div class="card">
+      <h2 id="prod-form-title">Ajouter un producteur</h2>
+      <div class="field">
+        <label for="p-nomaffiche">Nom affiché (carnet) *</label>
+        <input type="text" id="p-nomaffiche" placeholder="ex : Mirlande">
+      </div>
+      <div class="field">
+        <label for="p-nomfacture">Nom officiel (facturation)</label>
+        <input type="text" id="p-nomfacture" placeholder="ex : SUCCES Mirlande — laisser vide si inconnu">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="p-siret">SIRET</label>
+          <input type="text" id="p-siret" placeholder="ex : 123 456 789 00012">
+        </div>
+        <div class="field">
+          <label for="p-tva">Régime TVA</label>
+          <input type="text" id="p-tva" placeholder="TVA non applicable, art. 293 B du CGI">
+        </div>
+      </div>
+      <div class="field">
+        <label for="p-adresse">Adresse</label>
+        <input type="text" id="p-adresse" placeholder="Adresse du producteur">
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="btn-save-prod">Ajouter</button>
+        <button class="btn btn-ghost" id="btn-cancel-prod" style="display:none;">Annuler</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Fusionner deux producteurs</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Pour le cas où le même fournisseur a été enregistré deux fois sous des noms différents.
+        Tous les achats du producteur "à fusionner" sont réattribués au producteur "à conserver",
+        puis le doublon est supprimé. Les infos (nom officiel, SIRET...) du producteur conservé
+        ne sont pas modifiées — modifie-les avant la fusion si besoin.
+      </p>
+      <div class="field">
+        <label for="merge-source">Producteur à fusionner (sera supprimé)</label>
+        <select id="merge-source"></select>
+      </div>
+      <div class="field">
+        <label for="merge-target">Producteur à conserver</label>
+        <select id="merge-target"></select>
+      </div>
+      <button class="btn btn-danger btn-block" id="btn-merge-prod">Fusionner</button>
+    </div>
+    <div class="card">
+      <h2>Liste des producteurs</h2>
+      <div class="field">
+        <input type="text" id="prod-search" placeholder="Rechercher un producteur...">
+      </div>
+      <div id="prod-list"></div>
+    </div>
+  </section>
+
+  <!-- ===================== ARTICLES ===================== -->
+  <section class="tabpanel" id="tab-articles">
+    <div class="card">
+      <h2 id="art-form-title">Ajouter un article</h2>
+      <div class="row">
+        <div class="field">
+          <label for="a-nom">Nom de l'article *</label>
+          <input type="text" id="a-nom" placeholder="ex : Tomates">
+        </div>
+        <div class="field">
+          <label for="a-unite">Unité par défaut</label>
+          <select id="a-unite">
+            <option value="kg">kg</option>
+            <option value="u">u (pièce)</option>
+            <option value="botte">botte</option>
+            <option value="sac">sac</option>
+            <option value="l">l</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="a-origine">Origine (affichée sur la facture)</label>
+        <input type="text" id="a-origine" placeholder="Martinique" value="Martinique">
+        <p style="font-size:0.78rem; color:var(--ink-soft); margin:6px 0 0;">
+          Si l'origine change (ex : Guadeloupe), crée un nouvel article plutôt que de modifier
+          celui-ci — l'origine reste fixe par article.
+        </p>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="btn-save-art">Ajouter</button>
+        <button class="btn btn-ghost" id="btn-cancel-art" style="display:none;">Annuler</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Liste des articles</h2>
+      <div id="art-list"></div>
+    </div>
+  </section>
+
+  <!-- ===================== CAISSE ===================== -->
+  <section class="tabpanel" id="tab-caisse">
+    <div class="card">
+      <h2>Solde de caisse</h2>
+      <div class="field">
+        <label for="c-solde-initial">Solde initial (avant le premier mouvement enregistré ici)</label>
+        <input type="number" id="c-solde-initial" inputmode="decimal" step="0.01" placeholder="0.00">
+      </div>
+      <div class="grand-total">
+        <span class="label">Solde actuel</span>
+        <span class="value" id="c-solde-actuel">0,00 €</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Ajouter un crédit (recharge de cash)</h2>
+      <div class="row">
+        <div class="field">
+          <label for="c-date">Date</label>
+          <input type="date" id="c-date">
+        </div>
+        <div class="field">
+          <label for="c-montant">Montant (€)</label>
+          <input type="number" id="c-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+        </div>
+      </div>
+      <div class="field">
+        <label for="c-note">Note</label>
+        <input type="text" id="c-note" placeholder="ex : retrait bancaire, apport...">
+      </div>
+      <button class="btn btn-primary btn-block" id="btn-add-credit">Ajouter le crédit</button>
+    </div>
+
+    <div class="card">
+      <h2>Registre de caisse</h2>
+      <div class="row">
+        <div class="field">
+          <label for="c-from">Du</label>
+          <input type="date" id="c-from">
+        </div>
+        <div class="field">
+          <label for="c-to">Au</label>
+          <input type="date" id="c-to">
+        </div>
+      </div>
+      <div id="caisse-ledger"></div>
+      <button class="btn btn-clay btn-block" id="btn-export-caisse" style="margin-top:12px;">Exporter le registre en CSV</button>
+    </div>
+  </section>
+
+  <!-- ===================== FACTURES ===================== -->
+  <section class="tabpanel" id="tab-factures">
+    <div class="card">
+      <h2>Générer une facture</h2>
+      <div class="field combo-field">
+        <label for="fa-producteur-input">Producteur</label>
+        <input type="text" id="fa-producteur-input" class="combo-input" autocomplete="off" placeholder="Tape 3 lettres...">
+        <input type="hidden" id="fa-producteur">
+        <div class="combo-list" id="fa-producteur-list"></div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="fa-from">Du</label>
+          <input type="date" id="fa-from">
+        </div>
+        <div class="field">
+          <label for="fa-to">Au</label>
+          <input type="date" id="fa-to">
+        </div>
+      </div>
+      <div id="fa-preview" class="empty" style="display:none;"></div>
+      <button class="btn btn-primary btn-block" id="btn-generer-facture" style="margin-top:6px;">Générer la facture</button>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin-top:10px;">
+        La génération est bloquée tant que le producteur n'a pas de nom officiel de facturation confirmé
+        (onglet Producteurs).
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Factures émises</h2>
+      <div id="fa-list"></div>
+    </div>
+  </section>
+
+  <!-- ===================== EXPORT ===================== -->
+  <section class="tabpanel" id="tab-export">
+    <div class="card">
+      <h2>Sauvegarde complète</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Contrairement aux exports CSV ci-dessous (achats et caisse seulement), cette sauvegarde
+        contient tout : producteurs, articles, achats, caisse et factures émises. À faire
+        régulièrement — c'est le seul filet de sécurité en cas de perte du téléphone ou de
+        réinstallation.
+      </p>
+      <button class="btn btn-primary btn-block" id="btn-backup">Télécharger la sauvegarde (JSON)</button>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin:14px 0 6px;">Importer une sauvegarde (ajoute/écrase avec ces données, sur tous les appareils connectés) :</p>
+      <input type="file" id="restore-file" accept=".json,application/json" style="margin-bottom:10px;">
+      <button class="btn btn-danger btn-block" id="btn-restore" style="min-height:48px; font-size:0.95rem;">Importer la sauvegarde</button>
+    </div>
+
+    <div class="card">
+      <h2>Exporter en CSV</h2>
+      <div class="row">
+        <div class="field">
+          <label for="e-from">Du</label>
+          <input type="date" id="e-from">
+        </div>
+        <div class="field">
+          <label for="e-to">Au</label>
+          <input type="date" id="e-to">
+        </div>
+      </div>
+      <div class="export-summary">
+        <div class="export-stat"><div class="n" id="e-count">0</div><div class="l">ligne(s)</div></div>
+        <div class="export-stat"><div class="n" id="e-total">0,00 €</div><div class="l">total période</div></div>
+      </div>
+      <button class="btn btn-clay btn-block" id="btn-export">Télécharger le CSV</button>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin-top:10px;">
+        Colonnes : Date, Fournisseur, Produit, Quantité, Unité, Prix unitaire, Montant, Origine.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Importer un CSV (historique)</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Réimporte un CSV au même format que l'export (Date;Fournisseur;Produit;Quantité;Unité;
+        Prix unitaire;Montant). Les producteurs/articles inconnus sont créés automatiquement
+        (à vérifier ensuite dans leurs onglets respectifs). Les lignes identiques à une ligne
+        déjà présente (même date + producteur + article + quantité + prix) sont ignorées pour
+        éviter les doublons.
+      </p>
+      <input type="file" id="import-file" accept=".csv,text/csv" style="margin-bottom:10px;">
+      <button class="btn btn-primary btn-block" id="btn-import">Importer le CSV</button>
+      <div id="import-summary" style="font-size:0.85rem; color:var(--ink-soft); margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Maintenance</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        À utiliser seulement si des lignes affichent « producteur supprimé » ou « article supprimé »
+        de façon anormale. Ceci efface uniquement les achats enregistrés — les listes de producteurs
+        et d'articles ne sont pas touchées.
+      </p>
+      <button class="btn btn-danger btn-block" id="btn-reset-lignes" style="min-height:48px; font-size:0.95rem;">Effacer les achats enregistrés</button>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------
+// State
+// ---------------------------------------------------------------
+let producteurs = [];
+let articles = [];
+let lignes = [];
+let mouvementsCredit = [];
+let factures = [];
+let meta = { soldeInitial: 0 };
+let editingProducteurId = null;
+let editingArticleId = null;
+
+// ---------------------------------------------------------------
+// Firebase — l'appli est passée d'un stockage local (IndexedDB, par
+// appareil) à Firestore : une base cloud partagée entre tous les
+// appareils connectés avec le même compte, avec persistance offline
+// intégrée (les écritures faites hors-ligne se synchronisent seules au
+// retour du réseau). Chaque type de donnée est une collection Firestore
+// (un document par producteur/article/achat/etc.), jamais un gros bloc
+// JSON — ça évite toute limite de taille à long terme et permet une
+// synchronisation incrémentale au lieu de tout retransmettre à chaque
+// écriture.
+// ---------------------------------------------------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyDm9dbK_cFbgt9xK0UVPwEzzKgU4Au18Z8",
+  authDomain: "zikak-achats.firebaseapp.com",
+  projectId: "zikak-achats",
+  storageBucket: "zikak-achats.firebasestorage.app",
+  messagingSenderId: "89051370760",
+  appId: "1:89051370760:web:87d195fd5aa647545dc8bd"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence().catch(()=>{ /* onglet multiple ou navigateur non supporté — pas bloquant */ });
+
+const COL = {
+  producteurs: db.collection('producteurs'),
+  articles: db.collection('articles'),
+  lignes: db.collection('lignes'),
+  credits: db.collection('credits'),
+  factures: db.collection('factures'),
+  meta: db.collection('meta'),
+};
+
+document.getElementById('btn-login').addEventListener('click', async ()=>{
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if(!email || !password){ errEl.textContent = 'Renseigne email et mot de passe.'; errEl.style.display='block'; return; }
+  try{
+    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    await auth.signInWithEmailAndPassword(email, password);
+  }catch(e){
+    errEl.textContent = "Connexion impossible — vérifie l'email et le mot de passe.";
+    errEl.style.display = 'block';
+  }
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+window.addEventListener('online', ()=> updateSyncStatus(true));
+window.addEventListener('offline', ()=> updateSyncStatus(false));
+function updateSyncStatus(online){
+  const el = document.getElementById('savestatus');
+  el.textContent = online ? '● en ligne' : '○ hors ligne — sync en attente';
+}
+document.getElementById('btn-logout').addEventListener('click', ()=>{
+  if(!confirm('Se déconnecter de cet appareil ?')) return;
+  auth.signOut();
 });
 
-// Cache-first pour les fichiers de l'appli ET les 3 SDK Firebase précachés
-// ci-dessus (même hors-ligne dès le premier lancement, ils sont déjà en
-// cache). Toute autre requête cross-origin — en particulier les appels
-// réseau de Firestore lui-même (synchronisation, transactions) — passe
-// directement au réseau sans interception : le cache-first casserait la
-// synchronisation temps réel et le mode offline propre à Firestore, qui
-// gère déjà tout ça lui-même.
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  const url = event.request.url;
-  const sameOrigin = new URL(url).origin === self.location.origin;
-  if (!sameOrigin && !CROSS_ORIGIN_ASSETS.includes(url)) return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
-  );
+let appStarted = false;
+auth.onAuthStateChanged(user=>{
+  if(user){
+    document.body.classList.add('authed');
+    if(!appStarted){ appStarted = true; startApp(); }
+  }else{
+    document.body.classList.remove('authed');
+    document.getElementById('login-password').value = '';
+  }
 });
+
+function docId(x){ return x.id; }
+
+// Écoute temps réel : chaque collection met à jour le tableau local et
+// redessine les vues concernées dès qu'un changement arrive — que ce soit
+// depuis cet appareil ou depuis l'autre.
+function onSyncError(e){
+  console.error('Erreur de synchronisation', e);
+  const el = document.getElementById('savestatus');
+  el.textContent = '⚠ synchronisation interrompue';
+  showToast('⚠ Synchronisation interrompue — reconnecte-toi ou recharge la page');
+}
+function attachListeners(){
+  COL.producteurs.onSnapshot(snap=>{
+    producteurs = snap.docs.map(d=>d.data());
+    refreshSaisieSelects(); renderProdList(); renderLedger(); renderCaisse(); renderFacturesList();
+  }, onSyncError);
+  COL.articles.onSnapshot(snap=>{
+    articles = snap.docs.map(d=>d.data());
+    refreshSaisieSelects(); renderArtList(); renderLedger();
+  }, onSyncError);
+  COL.lignes.onSnapshot(snap=>{
+    lignes = snap.docs.map(d=>d.data());
+    renderLedger(); renderExportSummary(); renderCaisse();
+  }, onSyncError);
+  COL.credits.onSnapshot(snap=>{
+    mouvementsCredit = snap.docs.map(d=>d.data());
+    renderCaisse();
+  }, onSyncError);
+  COL.factures.onSnapshot(snap=>{
+    factures = snap.docs.map(d=>d.data());
+    renderFacturesList();
+  }, onSyncError);
+  COL.meta.doc('config').onSnapshot(snap=>{
+    meta.soldeInitial = snap.exists ? (snap.data().soldeInitial || 0) : 0;
+    elSoldeInitial.value = meta.soldeInitial;
+    renderCaisse();
+  }, onSyncError);
+}
+
+// ---------------------------------------------------------------
+// Migration ponctuelle : si cet appareil a des données de l'ancienne
+// version locale (IndexedDB) et que le cloud est encore vide, on
+// propose de les importer une seule fois. Si le cloud a déjà des
+// données (déposées depuis l'autre appareil), on ne fait rien — c'est
+// le cloud qui fait foi.
+async function readLegacyLocalData(){
+  return new Promise((resolve)=>{
+    if(!('indexedDB' in window)){ resolve(null); return; }
+    const req = indexedDB.open('zikak_db', 1);
+    req.onupgradeneeded = ()=>{};
+    req.onerror = ()=> resolve(null);
+    req.onsuccess = ()=>{
+      const legacyDb = req.result;
+      if(!legacyDb.objectStoreNames.contains('kv')){ resolve(null); return; }
+      const tx = legacyDb.transaction('kv', 'readonly');
+      const store = tx.objectStore('kv');
+      const keys = ['zikak_producteurs','zikak_articles','zikak_lignes','zikak_mouvements_credit','zikak_factures','zikak_meta'];
+      const out = {};
+      let remaining = keys.length;
+      keys.forEach(k=>{
+        const r = store.get(k);
+        const done = ()=>{ remaining--; if(remaining===0) resolve(out); };
+        r.onsuccess = ()=>{ out[k] = r.result ? r.result.value : null; done(); };
+        r.onerror = done;
+      });
+    };
+  });
+}
+async function maybeOfferLegacyMigration(){
+  if(localStorage.getItem('zikak_cloud_migrated')) return;
+  let cloudHasData = false;
+  try{
+    const snap = await COL.producteurs.limit(1).get();
+    cloudHasData = !snap.empty;
+  }catch(e){ return; } // hors-ligne au premier lancement — on retentera au prochain chargement
+  if(cloudHasData){ localStorage.setItem('zikak_cloud_migrated', '1'); return; }
+
+  const legacy = await readLegacyLocalData();
+  const legacyProd = legacy && legacy.zikak_producteurs;
+  if(!legacyProd || legacyProd.length===0){
+    // Ni cloud ni appareil n'ont de données : premier démarrage réel, on amorce
+    // avec les listes de producteurs/articles par défaut.
+    await batchWrite(COL.producteurs, defaultProducteurs());
+    await batchWrite(COL.articles, defaultArticles());
+    localStorage.setItem('zikak_cloud_migrated', '1');
+    return;
+  }
+
+  const legacyLignes = legacy.zikak_lignes || [];
+  if(!confirm(`Des données locales ont été trouvées sur cet appareil (${legacyProd.length} producteurs, ${legacyLignes.length} achats). Les importer vers le cloud maintenant ? À faire une seule fois, depuis un seul appareil.`)){
+    return; // on ne marque pas comme migré : proposera de nouveau au prochain chargement
+  }
+  try{
+    await batchWrite(COL.producteurs, legacyProd);
+    await batchWrite(COL.articles, legacy.zikak_articles || []);
+    await batchWrite(COL.lignes, legacyLignes);
+    await batchWrite(COL.credits, legacy.zikak_mouvements_credit || []);
+    await batchWrite(COL.factures, legacy.zikak_factures || []);
+    await COL.meta.doc('config').set({ soldeInitial: (legacy.zikak_meta && legacy.zikak_meta.soldeInitial) || 0 });
+    localStorage.setItem('zikak_cloud_migrated', '1');
+    showToast('Données locales migrées vers le cloud ✓');
+  }catch(e){
+    console.error('Migration échouée', e);
+    showToast('⚠ Migration échouée — réessaie plus tard');
+  }
+}
+async function batchWrite(col, items){
+  for(let i=0; i<items.length; i+=400){
+    const chunk = items.slice(i, i+400);
+    const batch = db.batch();
+    chunk.forEach(item=> batch.set(col.doc(docId(item)), item));
+    await batch.commit();
+  }
+}
+async function batchDelete(col, ids){
+  for(let i=0; i<ids.length; i+=400){
+    const chunk = ids.slice(i, i+400);
+    const batch = db.batch();
+    chunk.forEach(id=> batch.delete(col.doc(id)));
+    await batch.commit();
+  }
+}
+
+async function startApp(){
+  if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  updateSyncStatus(navigator.onLine);
+  attachListeners();
+  await maybeOfferLegacyMigration();
+  refreshSaisieSelects();
+  document.getElementById('c-date').value = todayISO();
+}
+function defaultProducteurs(){
+  return [
+    {id: uid(), nomAffiche:"Mirlande", nomFacturation:"SUCCES Mirlande", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Ernest", nomFacturation:"Ernest ONIER", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Espérance", nomFacturation:"Espérance Yonel", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Etris", nomFacturation:"ETRIS Pierre", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Carl", nomFacturation:"Carl Micholet", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Ogé", nomFacturation:"ACCEUS OGE", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Wilsoon", nomFacturation:"Wilsoon Fruits et légumes", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Bernadette", nomFacturation:"Bernadette R", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Fabienne", nomFacturation:"Fabienne DENIVAL", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Paolo", nomFacturation:"PAOLO Jean-Daniel", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Daphné", nomFacturation:"Toussaint Daphénie", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Francette", nomFacturation:"SIMON Francette", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Rolande", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Yvrose", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Marcilène", nomFacturation:"MACILENE", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Béatrice", nomFacturation:"Béatrice La pelée", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Noella", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Micania Jean-Pierre", nomFacturation:"MICANIA JEAN-PIERRE", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"James", nomFacturation:"LOUIS James Agriculteur", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Jean-Louis", nomFacturation:"Jean-louis Ketie", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Exali", nomFacturation:"Exali distribution", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Evelyne", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"SARLU", nomFacturation:"SARLU", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Christine", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Marie-Georges", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Mariejo", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Maryse", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Iranie", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Gratia", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Limea", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Marie Alice Micholet", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Paulo", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+    {id: uid(), nomAffiche:"Divers", nomFacturation:"", siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:''},
+  ];
+}
+function defaultArticles(){
+  return [
+    {id: uid(), nom:"Ananas", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Aubergines", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Avocats", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Bananes Jaunes", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Bananes Dessert", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Choux Pommés", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Christophines", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Citrons Verts", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Concombres", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Courgettes", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Dachines", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Giraumons", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Gombos", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Groseilles", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Haricots", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Melons", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Melons MQ", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Oignons Peyi", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Papayes Vertes", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Pastèques", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Patates", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Patates Douces", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Persils", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Piments Forts", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Piments Végétaux", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Thyms", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Ti Nain", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Tomates", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Laitue", unite:"sac", origine:"Martinique"},
+    {id: uid(), nom:"Mangues", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Maracujas", unite:"kg", origine:"Martinique"},
+    {id: uid(), nom:"Divers", unite:"kg", origine:"Martinique"},
+  ];
+}
+function uid(){
+  return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+}
+
+// ---------------------------------------------------------------
+// Toast
+// ---------------------------------------------------------------
+let toastTimer = null;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.classList.remove('show'), 1800);
+}
+
+// ---------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tabpanel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='caisse') renderCaisse();
+    if(btn.dataset.tab==='factures') renderFacturesList();
+  });
+});
+
+// ---------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------
+function fmtEUR(n){
+  return (n||0).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+}
+function todayISO(){
+  const d = new Date();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+function fmtDateFR(iso){
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// ---------------------------------------------------------------
+// SAISIE tab
+// ---------------------------------------------------------------
+const elDate = document.getElementById('f-date');
+const elProd = document.getElementById('f-producteur');
+const elArt  = document.getElementById('f-article');
+const elQte  = document.getElementById('f-qte');
+const elPrix = document.getElementById('f-prix');
+const elMontant = document.getElementById('f-montant');
+
+elDate.value = todayISO();
+
+// ---------------------------------------------------------------
+// Combo — champ de recherche filtrante (tape 3 lettres, insensible aux accents/maj.)
+// ---------------------------------------------------------------
+function stripAccents(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
+}
+function setupCombo(inputId, hiddenId, listId, getOptions){
+  const input = document.getElementById(inputId);
+  const hidden = document.getElementById(hiddenId);
+  const list = document.getElementById(listId);
+
+  function render(filterText){
+    const opts = getOptions();
+    const nf = stripAccents(filterText);
+    const filtered = nf ? opts.filter(o=>stripAccents(o.label).includes(nf)) : opts;
+    if(opts.length===0){
+      list.innerHTML = `<div class="combo-empty">Aucune option — ajoute-en une d'abord</div>`;
+    }else if(filtered.length===0){
+      list.innerHTML = `<div class="combo-empty">Aucun résultat</div>`;
+    }else{
+      list.innerHTML = filtered.map(o=>`<div class="combo-item" data-id="${o.id}">${escapeHtml(o.label)}</div>`).join('');
+    }
+    list.classList.add('show');
+  }
+
+  input.addEventListener('focus', ()=> render(input.value));
+  input.addEventListener('input', ()=>{
+    hidden.value = '';
+    render(input.value);
+  });
+  list.addEventListener('click', (e)=>{
+    const item = e.target.closest('.combo-item');
+    if(!item || !item.dataset.id) return;
+    const opt = getOptions().find(o=>o.id===item.dataset.id);
+    if(opt){
+      input.value = opt.label;
+      hidden.value = opt.id;
+    }
+    list.classList.remove('show');
+  });
+
+  return {
+    refresh(){
+      const opts = getOptions();
+      if(hidden.value && !opts.find(o=>o.id===hidden.value)){
+        hidden.value=''; input.value='';
+      }
+      if(!hidden.value){
+        input.placeholder = opts.length ? 'Tape 3 lettres...' : 'Aucune option, ajoute-en une';
+      }
+    }
+  };
+}
+document.addEventListener('click', (e)=>{
+  document.querySelectorAll('.combo-list.show').forEach(l=>{
+    const wrap = l.closest('.combo-field');
+    if(wrap && !wrap.contains(e.target)) l.classList.remove('show');
+  });
+});
+
+const comboProd = setupCombo('f-producteur-input', 'f-producteur', 'f-producteur-list',
+  ()=> producteurs.map(p=>({id:p.id, label:p.nomAffiche})));
+const comboArt = setupCombo('f-article-input', 'f-article', 'f-article-list',
+  ()=> articles.map(a=>({id:a.id, label:a.nom})));
+
+function refreshSaisieSelects(){
+  comboProd.refresh();
+  comboArt.refresh();
+  if(typeof comboFaProd !== 'undefined') comboFaProd.refresh();
+}
+
+function updateMontantPreview(){
+  const qte = parseFloat(elQte.value) || 0;
+  const prix = parseFloat(elPrix.value) || 0;
+  elMontant.textContent = fmtEUR(qte*prix);
+}
+elQte.addEventListener('input', updateMontantPreview);
+elPrix.addEventListener('input', updateMontantPreview);
+elDate.addEventListener('change', renderLedger);
+
+document.getElementById('btn-add-ligne').addEventListener('click', async ()=>{
+  const producteurId = elProd.value;
+  const articleId = elArt.value;
+  const qte = parseFloat(elQte.value);
+  const prix = parseFloat(elPrix.value);
+  const date = elDate.value;
+
+  if(!producteurId){ showToast("⚠ Ajoute d'abord un producteur"); return; }
+  if(!articleId){ showToast("⚠ Ajoute d'abord un article"); return; }
+  if(!date){ showToast('⚠ Renseigne une date'); return; }
+  if(!qte || qte<=0){ showToast('⚠ Quantité invalide'); elQte.focus(); return; }
+  if(prix===null || isNaN(prix) || prix<0){ showToast('⚠ Prix invalide'); elPrix.focus(); return; }
+
+  const ligne = {
+    id: uid(), date, producteurId, articleId,
+    qte, prixUnitaire: prix, montant: Math.round(qte*prix*100)/100
+  };
+  try{
+    await COL.lignes.doc(ligne.id).set(ligne);
+    showToast('Enregistré ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); return; }
+  elQte.value=''; elPrix.value=''; updateMontantPreview();
+  elQte.focus();
+});
+
+function renderPayoutSummary(dayLignes, date){
+  const el = document.getElementById('payout-summary');
+  if(dayLignes.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">💶</span>Rien à régler pour le ${fmtDateFR(date)}.</div>`;
+    return;
+  }
+  const byProd = {};
+  dayLignes.forEach(l=>{ byProd[l.producteurId] = (byProd[l.producteurId]||0) + l.montant; });
+  const rows = Object.keys(byProd).map(pid=>{
+    const p = producteurs.find(x=>x.id===pid);
+    return {nom: p ? p.nomAffiche : '(producteur supprimé)', total: byProd[pid]};
+  }).sort((a,b)=> b.total - a.total);
+  el.innerHTML = rows.map(r=>`
+    <div class="payout-row">
+      <span class="name">${escapeHtml(r.nom)}</span>
+      <span class="amount">${fmtEUR(r.total)}</span>
+    </div>
+  `).join('');
+}
+
+function renderLedger(){
+  const date = elDate.value || todayISO();
+  document.getElementById('log-title').textContent = `Achats du ${fmtDateFR(date)}`;
+  const dayLignes = lignes.filter(l=>l.date===date);
+  const container = document.getElementById('ledger-container');
+  renderPayoutSummary(dayLignes, date);
+
+  if(dayLignes.length===0){
+    container.innerHTML = `<div class="empty"><span class="big">📋</span>Aucun achat enregistré pour cette date.<br>Ajoute ta première ligne ci-dessus.</div>`;
+    document.getElementById('grand-total').textContent = fmtEUR(0);
+    return;
+  }
+
+  // group by producteur
+  const byProd = {};
+  dayLignes.forEach(l=>{
+    if(!byProd[l.producteurId]) byProd[l.producteurId]=[];
+    byProd[l.producteurId].push(l);
+  });
+
+  let html = '<div class="ledger">';
+  let grand = 0;
+  Object.keys(byProd).forEach(pid=>{
+    const p = producteurs.find(x=>x.id===pid);
+    const nom = p ? p.nomAffiche : '(producteur supprimé)';
+    let subtotal = 0;
+    html += `<div class="ledger-group-title">${escapeHtml(nom)}</div>`;
+    byProd[pid].forEach(l=>{
+      const a = articles.find(x=>x.id===l.articleId);
+      const nomArt = a ? a.nom : '(article supprimé)';
+      const unite = a ? a.unite : '';
+      subtotal += l.montant;
+      html += `
+        <div class="ledger-row">
+          <span class="art">${escapeHtml(nomArt)}</span>
+          <span class="qte">${l.qte} ${unite}</span>
+          <span class="pu">${fmtEUR(l.prixUnitaire)}</span>
+          <span class="mt">${fmtEUR(l.montant)}</span>
+          <span class="del"><button data-del="${l.id}" title="Supprimer la ligne">✕</button></span>
+        </div>`;
+    });
+    grand += subtotal;
+    html += `<div class="ledger-subtotal">Sous-total ${escapeHtml(nom)} : ${fmtEUR(subtotal)}</div>`;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+  document.getElementById('grand-total').textContent = fmtEUR(grand);
+
+  container.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Supprimer cette ligne ?')) return;
+      try{ await COL.lignes.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
+    });
+  });
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------------------------------------------------------------
+// PRODUCTEURS tab
+// ---------------------------------------------------------------
+const pFields = ['p-nomaffiche','p-nomfacture','p-siret','p-tva','p-adresse'];
+
+document.getElementById('btn-save-prod').addEventListener('click', async ()=>{
+  const nomAffiche = document.getElementById('p-nomaffiche').value.trim();
+  if(!nomAffiche){ showToast('⚠ Le nom affiché est obligatoire'); return; }
+  const id = editingProducteurId || uid();
+  const data = {
+    id, nomAffiche,
+    nomFacturation: document.getElementById('p-nomfacture').value.trim(),
+    siret: document.getElementById('p-siret').value.trim(),
+    tva: document.getElementById('p-tva').value.trim() || 'TVA non applicable, article 293 B du CGI',
+    adresse: document.getElementById('p-adresse').value.trim(),
+  };
+  try{
+    await COL.producteurs.doc(id).set(data, { merge: true });
+    showToast('Enregistré ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); return; }
+  editingProducteurId = null;
+  resetProdForm();
+});
+
+document.getElementById('btn-cancel-prod').addEventListener('click', resetProdForm);
+
+function resetProdForm(){
+  pFields.forEach(id=>document.getElementById(id).value='');
+  editingProducteurId = null;
+  document.getElementById('prod-form-title').textContent = 'Ajouter un producteur';
+  document.getElementById('btn-save-prod').textContent = 'Ajouter';
+  document.getElementById('btn-cancel-prod').style.display = 'none';
+}
+
+function renderProdList(){
+  const el = document.getElementById('prod-list');
+  if(producteurs.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">🧑‍🌾</span>Aucun producteur pour l'instant.<br>Ajoute ton premier producteur ci-dessus.</div>`;
+    populateMergeSelects();
+    return;
+  }
+  const term = stripAccents(document.getElementById('prod-search').value);
+  const filtered = term
+    ? producteurs.filter(p=> stripAccents(p.nomAffiche).includes(term) || stripAccents(p.nomFacturation||'').includes(term))
+    : producteurs;
+  if(filtered.length===0){
+    el.innerHTML = `<div class="empty">Aucun producteur ne correspond à "${escapeHtml(document.getElementById('prod-search').value)}".</div>`;
+    populateMergeSelects();
+    return;
+  }
+  el.innerHTML = filtered.map(p=>`
+    <div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(p.nomAffiche)} ${p.nomFacturation ? '' : '<span class="badge-new">nom facture à confirmer</span>'}</div>
+        <div class="meta">${p.nomFacturation ? 'Facturation : '+escapeHtml(p.nomFacturation)+' · ' : ''}${p.siret ? 'SIRET '+escapeHtml(p.siret)+' · ' : ''}${escapeHtml(p.tva)}${p.adresse ? ' · '+escapeHtml(p.adresse) : ''}</div>
+      </div>
+      <div class="actions">
+        <button data-edit="${p.id}">Modifier</button>
+        <button data-del="${p.id}" class="btn-danger" style="border-color:var(--line); color:var(--danger);">Suppr.</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = producteurs.find(x=>x.id===btn.dataset.edit);
+      if(!p) return;
+      document.getElementById('p-nomaffiche').value = p.nomAffiche;
+      document.getElementById('p-nomfacture').value = p.nomFacturation;
+      document.getElementById('p-siret').value = p.siret;
+      document.getElementById('p-tva').value = p.tva;
+      document.getElementById('p-adresse').value = p.adresse;
+      editingProducteurId = p.id;
+      document.getElementById('prod-form-title').textContent = 'Modifier ' + p.nomAffiche;
+      document.getElementById('btn-save-prod').textContent = 'Enregistrer les modifications';
+      document.getElementById('btn-cancel-prod').style.display = 'inline-flex';
+      document.getElementById('p-nomaffiche').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const p = producteurs.find(x=>x.id===btn.dataset.del);
+      const used = lignes.some(l=>l.producteurId===btn.dataset.del);
+      const msg = used
+        ? `${p.nomAffiche} a des achats enregistrés. Le supprimer ne supprime pas l'historique, mais il n'apparaîtra plus dans les listes. Continuer ?`
+        : `Supprimer ${p.nomAffiche} ?`;
+      if(!confirm(msg)) return;
+      try{ await COL.producteurs.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
+    });
+  });
+  populateMergeSelects();
+}
+
+document.getElementById('prod-search').addEventListener('input', renderProdList);
+
+function populateMergeSelects(){
+  const srcSel = document.getElementById('merge-source');
+  const tgtSel = document.getElementById('merge-target');
+  const prevSrc = srcSel.value, prevTgt = tgtSel.value;
+  const opts = [...producteurs]
+    .sort((a,b)=> a.nomAffiche.localeCompare(b.nomAffiche))
+    .map(p=> `<option value="${p.id}">${escapeHtml(p.nomAffiche)}${p.nomFacturation ? ' → '+escapeHtml(p.nomFacturation) : ''}</option>`)
+    .join('');
+  srcSel.innerHTML = '<option value="">— choisir —</option>' + opts;
+  tgtSel.innerHTML = '<option value="">— choisir —</option>' + opts;
+  if(producteurs.some(p=>p.id===prevSrc)) srcSel.value = prevSrc;
+  if(producteurs.some(p=>p.id===prevTgt)) tgtSel.value = prevTgt;
+}
+
+document.getElementById('btn-merge-prod').addEventListener('click', async ()=>{
+  const sourceId = document.getElementById('merge-source').value;
+  const targetId = document.getElementById('merge-target').value;
+  if(!sourceId || !targetId){ showToast('⚠ Choisis les deux producteurs'); return; }
+  if(sourceId===targetId){ showToast('⚠ Choisis deux producteurs différents'); return; }
+  const source = producteurs.find(p=>p.id===sourceId);
+  const target = producteurs.find(p=>p.id===targetId);
+  const nbLignes = lignes.filter(l=>l.producteurId===sourceId).length;
+  if(!confirm(`Fusionner "${source.nomAffiche}" dans "${target.nomAffiche}" ? ${nbLignes} achat(s) seront réattribués à "${target.nomAffiche}", puis "${source.nomAffiche}" sera supprimé. Irréversible.`)) return;
+
+  const btn = document.getElementById('btn-merge-prod');
+  btn.disabled = true;
+  try{
+    const idsToMove = lignes.filter(l=>l.producteurId===sourceId).map(l=>l.id);
+    for(let i=0; i<idsToMove.length; i+=400){
+      const chunk = idsToMove.slice(i, i+400);
+      const batch = db.batch();
+      chunk.forEach(id=> batch.update(COL.lignes.doc(id), { producteurId: targetId }));
+      await batch.commit();
+    }
+    await COL.producteurs.doc(sourceId).delete();
+    showToast(`Fusion terminée — ${nbLignes} achat(s) réattribué(s) ✓`);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de la fusion — vérifie ta connexion et réessaie');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------
+// ARTICLES tab
+// ---------------------------------------------------------------
+document.getElementById('btn-save-art').addEventListener('click', async ()=>{
+  const nom = document.getElementById('a-nom').value.trim();
+  if(!nom){ showToast("⚠ Le nom de l'article est obligatoire"); return; }
+  const unite = document.getElementById('a-unite').value;
+  const origine = document.getElementById('a-origine').value.trim() || 'Martinique';
+  const id = editingArticleId || uid();
+  try{
+    await COL.articles.doc(id).set({ id, nom, unite, origine }, { merge: true });
+    showToast('Enregistré ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); return; }
+  editingArticleId = null;
+  resetArtForm();
+});
+document.getElementById('btn-cancel-art').addEventListener('click', resetArtForm);
+
+function resetArtForm(){
+  document.getElementById('a-nom').value='';
+  document.getElementById('a-unite').value='kg';
+  document.getElementById('a-origine').value='Martinique';
+  editingArticleId = null;
+  document.getElementById('art-form-title').textContent = 'Ajouter un article';
+  document.getElementById('btn-save-art').textContent = 'Ajouter';
+  document.getElementById('btn-cancel-art').style.display = 'none';
+}
+
+function renderArtList(){
+  const el = document.getElementById('art-list');
+  if(articles.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">🥭</span>Aucun article pour l'instant.<br>Ajoute ton premier article ci-dessus.</div>`;
+    return;
+  }
+  el.innerHTML = articles.map(a=>`
+    <div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(a.nom)}</div>
+        <div class="meta">Unité par défaut : ${escapeHtml(a.unite)} · Origine : ${escapeHtml(a.origine || 'Martinique')}</div>
+      </div>
+      <div class="actions">
+        <button data-edit="${a.id}">Modifier</button>
+        <button data-del="${a.id}">Suppr.</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = articles.find(x=>x.id===btn.dataset.edit);
+      if(!a) return;
+      document.getElementById('a-nom').value = a.nom;
+      document.getElementById('a-unite').value = a.unite;
+      document.getElementById('a-origine').value = a.origine || 'Martinique';
+      editingArticleId = a.id;
+      document.getElementById('art-form-title').textContent = 'Modifier ' + a.nom;
+      document.getElementById('btn-save-art').textContent = 'Enregistrer les modifications';
+      document.getElementById('btn-cancel-art').style.display = 'inline-flex';
+      document.getElementById('a-nom').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const a = articles.find(x=>x.id===btn.dataset.del);
+      if(!confirm(`Supprimer ${a.nom} ?`)) return;
+      try{ await COL.articles.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
+    });
+  });
+}
+
+// ---------------------------------------------------------------
+// CAISSE tab
+// ---------------------------------------------------------------
+const elSoldeInitial = document.getElementById('c-solde-initial');
+const elCFrom = document.getElementById('c-from');
+const elCTo = document.getElementById('c-to');
+elSoldeInitial.value = meta.soldeInitial || 0;
+document.getElementById('c-date').value = todayISO();
+
+elSoldeInitial.addEventListener('change', async ()=>{
+  const soldeInitial = parseFloat(elSoldeInitial.value) || 0;
+  try{ await COL.meta.doc('config').set({ soldeInitial }, { merge: true }); }
+  catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); }
+});
+elCFrom.addEventListener('change', renderCaisse);
+elCTo.addEventListener('change', renderCaisse);
+
+// Les débits sont recalculés à la volée à partir des achats (une ligne de
+// débit agrégée par date + producteur), jamais stockés séparément : ça évite
+// tout désynchronisme si un achat est modifié ou supprimé après coup.
+function debitsFromLignes(){
+  const byKey = {};
+  lignes.forEach(l=>{
+    const key = l.date + '|' + l.producteurId;
+    if(!byKey[key]) byKey[key] = { date: l.date, producteurId: l.producteurId, montant: 0 };
+    byKey[key].montant += l.montant;
+  });
+  return Object.values(byKey).map(x=>({
+    id: 'debit-' + x.date + '-' + x.producteurId,
+    date: x.date, type: 'debit', producteurId: x.producteurId,
+    montant: Math.round(x.montant * 100) / 100,
+  }));
+}
+
+function allMouvements(){
+  const debits = debitsFromLignes().map(d=>{
+    const p = producteurs.find(x=>x.id===d.producteurId);
+    return { ...d, label: 'Achat — ' + (p ? p.nomAffiche : '(producteur supprimé)') };
+  });
+  const credits = mouvementsCredit.map(c=> ({
+    id: c.id, date: c.date, type: 'credit', montant: c.montant,
+    label: c.note ? c.note : 'Crédit',
+  }));
+  return [...debits, ...credits].sort((a,b)=> a.date===b.date ? 0 : (a.date<b.date?-1:1));
+}
+
+document.getElementById('btn-add-credit').addEventListener('click', async ()=>{
+  const date = document.getElementById('c-date').value;
+  const montant = parseFloat(document.getElementById('c-montant').value);
+  const note = document.getElementById('c-note').value.trim();
+  if(!date){ showToast('⚠ Renseigne une date'); return; }
+  if(!montant || montant<=0){ showToast('⚠ Montant invalide'); return; }
+  const credit = { id: uid(), date, montant: Math.round(montant*100)/100, note };
+  try{
+    await COL.credits.doc(credit.id).set(credit);
+    document.getElementById('c-montant').value=''; document.getElementById('c-note').value='';
+    showToast('Crédit ajouté ✓');
+  }catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); }
+});
+
+// Calcule le solde cumulé pour chaque mouvement (chronologique, sur tout
+// l'historique) et retourne { rows, running } où `rows` ne garde que les
+// mouvements dans [from, to] et `running` est le solde après le dernier
+// mouvement (= solde actuel), indépendamment du filtre. Partagé entre le
+// rendu de l'onglet et l'export CSV pour éviter deux implémentations.
+function mouvementsAvecSolde(from, to){
+  let running = meta.soldeInitial || 0;
+  const rows = [];
+  allMouvements().forEach(m=>{
+    running += (m.type==='credit' ? m.montant : -m.montant);
+    if((!from || m.date>=from) && (!to || m.date<=to)) rows.push({...m, solde: running});
+  });
+  return { rows, running };
+}
+
+function renderCaisse(){
+  const from = elCFrom.value, to = elCTo.value;
+  const { rows, running } = mouvementsAvecSolde(from, to);
+  document.getElementById('c-solde-actuel').textContent = fmtEUR(running);
+
+  const el = document.getElementById('caisse-ledger');
+  if(rows.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">💶</span>Aucun mouvement sur cette période.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="mvt-head"><span>Date</span><span>Libellé</span><span>Montant</span><span>Solde</span></div>
+    ${rows.map(m=>`
+      <div class="mvt-row">
+        <span class="mvt-date">${fmtDateFR(m.date)}</span>
+        <span class="mvt-label">${escapeHtml(m.label)}</span>
+        <span class="mvt-amt ${m.type}">${m.type==='credit'?'+':'-'}${fmtEUR(m.montant)}</span>
+        <span class="mvt-solde">${fmtEUR(m.solde)}</span>
+        <span class="mvt-del">${m.type==='credit' ? `<button data-del-credit="${m.id}" title="Supprimer">✕</button>` : ''}</span>
+      </div>
+    `).join('')}
+  `;
+  el.querySelectorAll('[data-del-credit]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Supprimer ce crédit ?')) return;
+      try{ await COL.credits.doc(btn.dataset.delCredit).delete(); }
+      catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
+    });
+  });
+}
+
+document.getElementById('btn-export-caisse').addEventListener('click', ()=>{
+  const from = elCFrom.value, to = elCTo.value;
+  const { rows } = mouvementsAvecSolde(from, to);
+  if(rows.length===0){ showToast('⚠ Aucun mouvement sur cette période'); return; }
+  const header = ['Date','Type','Libelle','Debit','Credit','Solde'];
+  const csvRows = rows.map(m=>[
+    fmtDateFR(m.date), m.type==='credit'?'Credit':'Debit', m.label,
+    m.type==='debit' ? m.montant.toFixed(2).replace('.',',') : '',
+    m.type==='credit' ? m.montant.toFixed(2).replace('.',',') : '',
+    m.solde.toFixed(2).replace('.',','),
+  ]);
+  const csv = [header, ...csvRows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `zikak_caisse_${from||'debut'}_a_${to||'fin'}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('Registre exporté ✓');
+});
+
+// ---------------------------------------------------------------
+// FACTURES tab
+// ---------------------------------------------------------------
+const comboFaProd = setupCombo('fa-producteur-input', 'fa-producteur', 'fa-producteur-list',
+  ()=> producteurs.filter(p=>p.nomFacturation).map(p=>({id:p.id, label:p.nomAffiche + ' → ' + p.nomFacturation})));
+
+document.getElementById('fa-from').value = todayISO();
+document.getElementById('fa-to').value = todayISO();
+
+const ACHETEUR = {
+  raison_sociale: 'SARL PANORAMIX (Zikak)',
+  adresse: 'Le coin, 97221 Carbet, Martinique',
+  siret: '843 897 265 00016',
+};
+
+// Le numéro de facture est dérivé du plus grand numéro déjà présent dans
+// `factures` pour l'année en cours — jamais d'un compteur stocké à part.
+// Ça élimine tout risque de désynchronisation (ex : appli fermée entre deux
+// sauvegardes) qui pourrait faire réattribuer un numéro déjà utilisé.
+// La numérotation ET la création de la facture se font dans une seule
+// transaction Firestore : soit les deux réussissent, soit aucune. Le
+// serveur arbitre lui-même si les deux appareils demandent un numéro au
+// même moment — impossible d'obtenir deux fois le même numéro, y compris
+// en usage simultané multi-appareils. Nécessite une connexion (une
+// transaction ne peut pas s'exécuter hors-ligne).
+async function genererEtEnregistrerFacture(factureSansNumero){
+  const year = new Date().getFullYear();
+  const counterRef = COL.meta.doc('factureCounter');
+  return db.runTransaction(async (tx)=>{
+    const snap = await tx.get(counterRef);
+    const data = snap.exists ? snap.data() : {};
+    const n = (data[year] || 0) + 1;
+    const numero = `AF-${year}-${String(n).padStart(3,'0')}`;
+    const facture = { ...factureSansNumero, numero };
+    tx.set(counterRef, { ...data, [year]: n }, { merge: true });
+    tx.set(COL.factures.doc(facture.id), facture);
+    return facture;
+  });
+}
+
+document.getElementById('btn-generer-facture').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btn-generer-facture');
+  const producteurId = document.getElementById('fa-producteur').value;
+  const from = document.getElementById('fa-from').value;
+  const to = document.getElementById('fa-to').value;
+  if(!producteurId){ showToast('⚠ Choisis un producteur'); return; }
+  const p = producteurs.find(x=>x.id===producteurId);
+  if(!p){ showToast('⚠ Producteur introuvable'); return; }
+  if(!p.nomFacturation){ showToast('⚠ Nom de facturation non confirmé pour ce producteur'); return; }
+  if(!from || !to){ showToast('⚠ Renseigne une période'); return; }
+
+  const lignesFacture = lignes
+    .filter(l=> l.producteurId===producteurId && l.date>=from && l.date<=to)
+    .sort((a,b)=> a.date.localeCompare(b.date))
+    .map(l=>{
+      const a = articles.find(x=>x.id===l.articleId);
+      return {
+        date: l.date,
+        designation: (a ? a.nom + (a.origine ? ' (Origine : ' + a.origine + ')' : '') : 'Article supprimé') + ' — ' + l.qte + ' ' + (a?a.unite:'') + ' × ' + fmtEUR(l.prixUnitaire),
+        montant: l.montant,
+      };
+    });
+
+  if(lignesFacture.length===0){ showToast('⚠ Aucun achat pour ce producteur sur cette période'); return; }
+
+  btn.disabled = true;
+  try{
+    const total = Math.round(lignesFacture.reduce((s,l)=>s+l.montant,0)*100)/100;
+    const facture = await genererEtEnregistrerFacture({
+      id: uid(), producteurId,
+      nomFacturationSnapshot: p.nomFacturation,
+      periodeDebut: from, periodeFin: to,
+      dateEmission: todayISO(),
+      lignes: lignesFacture, total,
+      tva: p.tva || 'TVA non applicable, article 293 B du CGI',
+      annulee: false,
+    });
+    showToast('Facture ' + facture.numero + ' générée ✓');
+    ouvrirFacturePourImpression(facture);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Génération impossible — vérifie ta connexion et réessaie');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function ouvrirFacturePourImpression(f){
+  const p = producteurs.find(x=>x.id===f.producteurId);
+  const win = window.open('', '_blank');
+  if(!win){ showToast('⚠ Autorise les pop-ups pour imprimer la facture'); return; }
+  const rows = f.lignes.map(l=>`
+    <tr>
+      <td>${fmtDateFR(l.date)}</td>
+      <td>${escapeHtml(l.designation)}</td>
+      <td style="text-align:right;">${fmtEUR(l.montant)}</td>
+    </tr>`).join('');
+  win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    <title>Facture ${f.numero}</title>
+    <style>
+      body{font-family:Georgia,serif; color:#26241D; padding:30px; max-width:700px; margin:0 auto;}
+      h1{color:#1F4E3D; font-size:1.5rem; margin-bottom:4px;}
+      .mention{font-size:0.8rem; color:#5A5648; font-style:italic; margin-bottom:18px;}
+      .lv{font-size:0.85rem; margin:2px 0;}
+      .lv b{display:inline-block; min-width:150px;}
+      .cols{display:flex; gap:24px; margin:18px 0;}
+      .cols div{flex:1;}
+      .cols h3{color:#1F4E3D; font-size:0.85rem; margin-bottom:6px;}
+      table{width:100%; border-collapse:collapse; margin-top:16px; font-size:0.88rem;}
+      th{background:#1F4E3D; color:#fff; padding:8px; text-align:left;}
+      td{padding:7px 8px; border-bottom:1px solid #D8D2BF;}
+      tfoot td{font-weight:bold; background:#F2F2F2;}
+      .tvamention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:14px;}
+      .sig{display:flex; justify-content:space-between; margin-top:50px; font-size:0.85rem;}
+      @media print{ button{display:none;} }
+    </style></head><body>
+    <button onclick="window.print()" style="margin-bottom:16px; padding:8px 14px;">Imprimer / Enregistrer en PDF</button>
+    <h1>FACTURE D'ACHAT</h1>
+    <div class="mention">Facture établie par l'acheteur au nom et pour le compte du fournisseur, conformément à l'article 289-I-2 du Code Général des Impôts (auto-facturation).</div>
+    <div class="lv"><b>N° de facture</b> ${f.numero}</div>
+    <div class="lv"><b>Date d'émission</b> ${fmtDateFR(f.dateEmission)}</div>
+    <div class="lv"><b>Période concernée</b> ${fmtDateFR(f.periodeDebut)} — ${fmtDateFR(f.periodeFin)}</div>
+    <div class="cols">
+      <div><h3>ACHETEUR</h3>
+        <div class="lv">${escapeHtml(ACHETEUR.raison_sociale)}</div>
+        <div class="lv">${escapeHtml(ACHETEUR.adresse)}</div>
+        <div class="lv">SIRET : ${escapeHtml(ACHETEUR.siret)}</div>
+      </div>
+      <div><h3>FOURNISSEUR</h3>
+        <div class="lv">${escapeHtml(f.nomFacturationSnapshot)}</div>
+        <div class="lv" style="font-style:italic; color:#5A5648;">(adresse et SIRET du fournisseur : cf. cachet ci-dessous)</div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Désignation</th><th style="text-align:right;">Montant</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td></td><td>TOTAL</td><td style="text-align:right;">${fmtEUR(f.total)}</td></tr></tfoot>
+    </table>
+    <div class="tvamention">${escapeHtml(f.tva)}</div>
+    <div class="sig">
+      <div>Fait à Martinique, le ${fmtDateFR(f.dateEmission)}</div>
+      <div><b>Cachet et signature du fournisseur :</b><br><br><br></div>
+    </div>
+    </body></html>`);
+  win.document.close();
+}
+
+function renderFacturesList(){
+  const el = document.getElementById('fa-list');
+  if(factures.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">🧾</span>Aucune facture générée pour l'instant.</div>`;
+    return;
+  }
+  const sorted = [...factures].sort((a,b)=> b.numero.localeCompare(a.numero));
+  el.innerHTML = sorted.map(f=>{
+    const p = producteurs.find(x=>x.id===f.producteurId);
+    return `
+    <div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(f.numero)} <span class="fa-status ${f.annulee?'void':'ok'}">${f.annulee?'annulée':'émise'}</span></div>
+        <div class="meta">${escapeHtml(p ? p.nomAffiche : f.nomFacturationSnapshot)} · ${fmtDateFR(f.periodeDebut)} — ${fmtDateFR(f.periodeFin)} · ${fmtEUR(f.total)}</div>
+      </div>
+      <div class="actions">
+        <button data-print="${f.id}">Imprimer</button>
+        ${f.annulee ? '' : `<button data-void="${f.id}">Annuler</button>`}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-print]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const f = factures.find(x=>x.id===btn.dataset.print);
+      if(f) ouvrirFacturePourImpression(f);
+    });
+  });
+  el.querySelectorAll('[data-void]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm("Marquer cette facture comme annulée ? Le numéro reste utilisé (jamais réattribué), conformément aux règles de numérotation.")) return;
+      try{ await COL.factures.doc(btn.dataset.void).update({ annulee: true }); }
+      catch(e){ console.error(e); showToast("⚠ Échec de l'enregistrement — réessaie"); }
+    });
+  });
+}
+
+// ---------------------------------------------------------------
+// SAUVEGARDE COMPLÈTE (JSON) — le seul filet de sécurité couvrant
+// producteurs/articles/factures en plus des achats et de la caisse.
+// ---------------------------------------------------------------
+document.getElementById('btn-backup').addEventListener('click', ()=>{
+  const backup = {
+    app: 'zikak', version: 1, exporteLe: new Date().toISOString(),
+    producteurs, articles, lignes, mouvementsCredit, factures, meta,
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zikak_sauvegarde_${todayISO()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Sauvegarde téléchargée ✓');
+});
+
+document.getElementById('btn-restore').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('restore-file');
+  const file = fileInput.files[0];
+  if(!file){ showToast('⚠ Choisis un fichier de sauvegarde'); return; }
+  let backup;
+  try{
+    backup = JSON.parse(await file.text());
+  }catch(e){ showToast('⚠ Fichier illisible — ce n\'est pas un JSON valide'); return; }
+  if(backup.app !== 'zikak' || !Array.isArray(backup.producteurs)){
+    showToast('⚠ Ce fichier ne ressemble pas à une sauvegarde Zikak'); return;
+  }
+  if(!confirm(`Importer cette sauvegarde du ${backup.exporteLe ? fmtDateFR(backup.exporteLe.slice(0,10)) : '?'} ? Comme la base est maintenant partagée en ligne, ceci ajoute/écrase avec ces données sur TOUS les appareils connectés, immédiatement. Ça n'efface PAS ce qui existe déjà en ligne et qui ne serait pas dans ce fichier (ex : achats saisis depuis la sauvegarde).`)) return;
+
+  try{
+    await batchWrite(COL.producteurs, backup.producteurs || []);
+    await batchWrite(COL.articles, backup.articles || []);
+    await batchWrite(COL.lignes, backup.lignes || []);
+    await batchWrite(COL.credits, backup.mouvementsCredit || []);
+    await batchWrite(COL.factures, backup.factures || []);
+    if(backup.meta) await COL.meta.doc('config').set({ soldeInitial: backup.meta.soldeInitial || 0 }, { merge: true });
+    fileInput.value = '';
+    showToast('Sauvegarde importée ✓');
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de l\'import — vérifie ta connexion et réessaie');
+  }
+});
+
+// ---------------------------------------------------------------
+// EXPORT tab
+// ---------------------------------------------------------------
+const elFrom = document.getElementById('e-from');
+const elTo = document.getElementById('e-to');
+elFrom.value = todayISO();
+elTo.value = todayISO();
+elFrom.addEventListener('change', renderExportSummary);
+elTo.addEventListener('change', renderExportSummary);
+
+function lignesInRange(){
+  const from = elFrom.value;
+  const to = elTo.value;
+  return lignes.filter(l => (!from || l.date>=from) && (!to || l.date<=to))
+               .sort((a,b)=> a.date.localeCompare(b.date));
+}
+
+function renderExportSummary(){
+  const sel = lignesInRange();
+  document.getElementById('e-count').textContent = sel.length;
+  document.getElementById('e-total').textContent = fmtEUR(sel.reduce((s,l)=>s+l.montant,0));
+}
+
+document.getElementById('btn-export').addEventListener('click', ()=>{
+  const sel = lignesInRange();
+  if(sel.length===0){ showToast('⚠ Aucune ligne sur cette période'); return; }
+  const header = ['Date','Fournisseur','Produit','Quantite','Unite','Prix unitaire','Montant','Origine'];
+  const rows = sel.map(l=>{
+    const p = producteurs.find(x=>x.id===l.producteurId);
+    const a = articles.find(x=>x.id===l.articleId);
+    const nomFournisseur = p ? (p.nomFacturation || p.nomAffiche) : '';
+    return [
+      fmtDateFR(l.date),
+      nomFournisseur,
+      a ? a.nom : '',
+      l.qte,
+      a ? a.unite : '',
+      l.prixUnitaire.toFixed(2).replace('.',','),
+      l.montant.toFixed(2).replace('.',','),
+      a ? (a.origine || 'Martinique') : ''
+    ];
+  });
+  const csv = [header, ...rows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zikak_export_${elFrom.value}_a_${elTo.value}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Export téléchargé ✓');
+});
+
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+
+// ---------------------------------------------------------------
+// IMPORT CSV (historique)
+// ---------------------------------------------------------------
+function parseCsv(text){
+  // Supprime un éventuel BOM, détecte le séparateur (';' ou ',').
+  text = text.replace(/^\uFEFF/, '');
+  const lines = text.split(/\r\n|\n|\r/).filter(l=>l.trim().length>0);
+  if(lines.length===0) return [];
+  const sep = lines[0].includes(';') ? ';' : ',';
+  function parseLine(line){
+    const out = []; let cur=''; let inQ=false;
+    for(let i=0;i<line.length;i++){
+      const c = line[i];
+      if(inQ){
+        if(c==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else inQ=false; }
+        else cur+=c;
+      }else{
+        if(c==='"') inQ=true;
+        else if(c===sep){ out.push(cur); cur=''; }
+        else cur+=c;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+  const header = parseLine(lines[0]).map(h=>h.trim().toLowerCase());
+  return lines.slice(1).map(l=>{
+    const cells = parseLine(l);
+    const row = {};
+    header.forEach((h,i)=> row[h]=(cells[i]??'').trim());
+    return row;
+  });
+}
+function parseFrDate(s){
+  s = String(s||'').trim();
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return '';
+}
+function parseFrNumber(s){
+  s = String(s||'').trim().replace(/\s/g,'').replace(',','.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function findOrCreateProducteur(nomCsv){
+  const nf = stripAccents(nomCsv);
+  let p = producteurs.find(x=> stripAccents(x.nomFacturation)===nf || stripAccents(x.nomAffiche)===nf);
+  if(p) return {producteur:p, created:false};
+  p = { id: uid(), nomAffiche: nomCsv, nomFacturation: '', siret:'', tva:'TVA non applicable, article 293 B du CGI', adresse:'' };
+  producteurs.push(p);
+  return {producteur:p, created:true};
+}
+function findOrCreateArticle(nomCsv, uniteCsv, origineCsv){
+  const nf = stripAccents(nomCsv);
+  let a = articles.find(x=> stripAccents(x.nom)===nf);
+  if(a) return {article:a, created:false};
+  a = { id: uid(), nom: nomCsv || 'Historique', unite: (uniteCsv||'kg').trim() || 'kg', origine: (origineCsv||'').trim() || 'Martinique' };
+  articles.push(a);
+  return {article:a, created:true};
+}
+
+document.getElementById('btn-import').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('import-file');
+  const summaryEl = document.getElementById('import-summary');
+  const file = fileInput.files[0];
+  if(!file){ showToast('⚠ Choisis un fichier CSV'); return; }
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if(rows.length===0){ showToast('⚠ Fichier vide ou illisible'); return; }
+
+  let imported=0, skippedDup=0, skippedInvalid=0, newProd=0, newArt=0;
+  const existingSig = new Set(lignes.map(l=> [l.date,l.producteurId,l.articleId,l.qte,l.prixUnitaire].join('|')));
+  const nouveauxProducteurs = [];
+  const nouveauxArticles = [];
+  const nouvellesLignes = [];
+
+  rows.forEach(row=>{
+    const date = parseFrDate(row['date']);
+    const fournisseur = row['fournisseur'];
+    const produit = row['produit'];
+    const qte = parseFrNumber(row['quantite'] ?? row['quantité']);
+    const prix = parseFrNumber(row['prix unitaire']);
+    let montant = parseFrNumber(row['montant']);
+    const unite = row['unite'] ?? row['unité'];
+    const origine = row['origine'];
+
+    if(!date || !fournisseur || !produit || qte===null || prix===null || qte<=0 || prix<0){
+      skippedInvalid++; return;
+    }
+    if(montant===null) montant = Math.round(qte*prix*100)/100;
+
+    const { producteur:p, created:pc } = findOrCreateProducteur(fournisseur);
+    if(pc){ newProd++; nouveauxProducteurs.push(p); }
+    const { article:a, created:ac } = findOrCreateArticle(produit, unite, origine);
+    if(ac){ newArt++; nouveauxArticles.push(a); }
+
+    const sig = [date, p.id, a.id, qte, prix].join('|');
+    if(existingSig.has(sig)){ skippedDup++; return; }
+    existingSig.add(sig);
+
+    nouvellesLignes.push({ id: uid(), date, producteurId: p.id, articleId: a.id, qte, prixUnitaire: prix, montant });
+    imported++;
+  });
+
+  try{
+    await batchWrite(COL.producteurs, nouveauxProducteurs);
+    await batchWrite(COL.articles, nouveauxArticles);
+    await batchWrite(COL.lignes, nouvellesLignes);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de l\'import — vérifie ta connexion et réessaie');
+    return;
+  }
+
+  summaryEl.innerHTML = `${imported} ligne(s) importée(s) · ${skippedDup} doublon(s) ignoré(s)` +
+    (skippedInvalid ? ` · ${skippedInvalid} ligne(s) invalide(s) ignorée(s)` : '') +
+    (newProd ? ` · ${newProd} nouveau(x) producteur(s) créé(s) (nom de facturation à confirmer)` : '') +
+    (newArt ? ` · ${newArt} nouvel(aux) article(s) créé(s)` : '');
+  fileInput.value = '';
+  showToast('Import terminé ✓');
+});
+
+document.getElementById('btn-reset-lignes').addEventListener('click', async ()=>{
+  if(!confirm(`Effacer les ${lignes.length} ligne(s) d'achat enregistrée(s) sur TOUS les appareils connectés ? Les producteurs et articles ne sont pas touchés. Cette action est irréversible.`)) return;
+  try{
+    await batchDelete(COL.lignes, lignes.map(l=>l.id));
+    showToast('Achats effacés ✓');
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de la suppression — vérifie ta connexion et réessaie');
+  }
+});
+
+// ---------------------------------------------------------------
+// Init — le vrai démarrage se fait dans startApp(), déclenché par
+// auth.onAuthStateChanged() une fois connecté (voir plus haut).
+// ---------------------------------------------------------------
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(e=>console.error('SW registration failed', e));
+  });
+}
+</script>
+</body>
+</html>
