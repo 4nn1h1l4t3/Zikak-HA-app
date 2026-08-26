@@ -441,6 +441,13 @@
         <span class="label">Montant de la ligne</span>
         <span class="value" id="f-montant">0,00 €</span>
       </div>
+      <div class="field">
+        <label for="f-mode">Mode de règlement</label>
+        <select id="f-mode">
+          <option value="cash" selected>Cash (sort de la caisse)</option>
+          <option value="cb">Carte bancaire (ne touche pas la caisse)</option>
+        </select>
+      </div>
       <button class="btn btn-primary btn-block" id="btn-add-ligne">Ajouter la ligne</button>
     </div>
 
@@ -1165,9 +1172,10 @@ document.getElementById('btn-add-ligne').addEventListener('click', async ()=>{
   if(!qte || qte<=0){ showToast('⚠ Quantité invalide'); elQte.focus(); return; }
   if(prix===null || isNaN(prix) || prix<0){ showToast('⚠ Prix invalide'); elPrix.focus(); return; }
 
+  const mode = document.getElementById('f-mode').value === 'cb' ? 'cb' : 'cash';
   const ligne = {
     id: uid(), date, producteurId, articleId,
-    qte, prixUnitaire: prix, montant: Math.round(qte*prix*100)/100
+    qte, prixUnitaire: prix, montant: Math.round(qte*prix*100)/100, mode
   };
   try{
     await COL.lignes.doc(ligne.id).set(ligne);
@@ -1184,7 +1192,8 @@ function renderPayoutSummary(dayLignes, date){
     return;
   }
   const byProd = {};
-  dayLignes.forEach(l=>{ byProd[l.producteurId] = (byProd[l.producteurId]||0) + l.montant; });
+  // Idem debitsFromLignes : le CB ne compte pas dans le cash à sortir aujourd'hui.
+  dayLignes.filter(l=> l.mode !== 'cb').forEach(l=>{ byProd[l.producteurId] = (byProd[l.producteurId]||0) + l.montant; });
   const rows = Object.keys(byProd).map(pid=>{
     const p = producteurs.find(x=>x.id===pid);
     return {nom: p ? p.nomAffiche : '(producteur supprimé)', total: byProd[pid]};
@@ -1231,7 +1240,7 @@ function renderLedger(){
       subtotal += l.montant;
       html += `
         <div class="ledger-row">
-          <span class="art">${escapeHtml(nomArt)}</span>
+          <span class="art">${escapeHtml(nomArt)}${l.mode==='cb' ? ' <span title="Payé par carte bancaire — ne sort pas de la caisse" style="font-size:0.75em; opacity:0.75;">💳 CB</span>' : ''}</span>
           <span class="qte">${l.qte} ${unite}</span>
           <span class="pu">${fmtEUR(l.prixUnitaire)}</span>
           <span class="mt">${fmtEUR(l.montant)}</span>
@@ -1491,7 +1500,12 @@ elCTo.addEventListener('change', renderCaisse);
 // tout désynchronisme si un achat est modifié ou supprimé après coup.
 function debitsFromLignes(){
   const byKey = {};
-  lignes.forEach(l=>{
+  // Les lignes payées par CB ne sortent pas de la caisse physique — elles
+  // sont exclues du registre de caisse (mais restent comptées pour les
+  // factures producteur, cf. genererEtEnregistrerFacture qui lit `lignes`
+  // directement). Une ligne sans champ `mode` (historique) est traitée
+  // comme cash, pour ne rien changer aux achats déjà saisis.
+  lignes.filter(l=> l.mode !== 'cb').forEach(l=>{
     const key = l.date + '|' + l.producteurId;
     if(!byKey[key]) byKey[key] = { date: l.date, producteurId: l.producteurId, montant: 0 };
     byKey[key].montant += l.montant;
@@ -2054,6 +2068,7 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
     let montant = parseFrNumber(row['montant']);
     const unite = row['unite'] ?? row['unité'];
     const origine = row['origine'];
+    const mode = stripAccents((row['mode'] || '').trim().toLowerCase()) === 'cb' ? 'cb' : 'cash';
 
     if(!date || !fournisseur || !produit || qte===null || prix===null || qte<=0 || prix<0){
       skippedInvalid++; return;
@@ -2069,7 +2084,7 @@ document.getElementById('btn-import').addEventListener('click', async ()=>{
     if(existingSig.has(sig)){ skippedDup++; return; }
     existingSig.add(sig);
 
-    nouvellesLignes.push({ id: uid(), date, producteurId: p.id, articleId: a.id, qte, prixUnitaire: prix, montant });
+    nouvellesLignes.push({ id: uid(), date, producteurId: p.id, articleId: a.id, qte, prixUnitaire: prix, montant, mode });
     imported++;
   });
 
