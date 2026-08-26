@@ -616,6 +616,12 @@
       </div>
       <div id="caisse-ledger"></div>
       <button class="btn btn-clay btn-block" id="btn-export-caisse" style="margin-top:12px;">Exporter le registre en CSV</button>
+      <button class="btn btn-clay btn-block" id="btn-export-caisse-compta" style="margin-top:8px;">Exporter au format compta (CSV)</button>
+      <p style="font-size:0.8rem; color:var(--ink-soft); margin-top:10px;">
+        Le 2e bouton reproduit les colonnes du classeur de caisse historique (DATE RGLT / N° FACTURE /
+        FOURNISSEUR / CLIENT / ARTICLES / DÉBIT EUR / CRÉDIT EUR / SOLDE EUR), pour réinjection directe
+        dans le workflow compta.
+      </p>
     </div>
   </section>
 
@@ -1587,6 +1593,36 @@ document.getElementById('btn-export-caisse').addEventListener('click', ()=>{
   a.href = url; a.download = `zikak_caisse_${from||'debut'}_a_${to||'fin'}.csv`;
   a.click(); URL.revokeObjectURL(url);
   showToast('Registre exporté ✓');
+});
+
+document.getElementById('btn-export-caisse-compta').addEventListener('click', ()=>{
+  const from = elCFrom.value, to = elCTo.value;
+  const { rows } = mouvementsAvecSolde(from, to);
+  if(rows.length===0){ showToast('⚠ Aucun mouvement sur cette période'); return; }
+  const header = ['DATE RGLT','N° FACTURE (CARNET/PAGE)','FOURNISSEUR / CLIENT','ARTICLES','DÉBIT EUR','CRÉDIT EUR','SOLDE EUR'];
+  const csvRows = rows.map(m=>{
+    const isCredit = m.type==='credit';
+    // Convention du classeur historique : les retraits/crédits sont toujours
+    // libellés "Retrait Cash" en colonne FOURNISSEUR/CLIENT, quel que soit le
+    // libellé détaillé enregistré dans l'appli.
+    const fournisseurClient = isCredit ? 'Retrait Cash' : m.label.replace(/^Achat — /, '');
+    return [
+      fmtDateFR(m.date),
+      '',
+      fournisseurClient,
+      isCredit ? '' : 'Fruits et légumes',
+      isCredit ? '' : m.montant.toFixed(2).replace('.',','),
+      isCredit ? m.montant.toFixed(2).replace('.',',') : '',
+      m.solde.toFixed(2).replace('.',','),
+    ];
+  });
+  const csv = [header, ...csvRows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `zikak_caisse_format_compta_${from||'debut'}_a_${to||'fin'}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('Registre exporté (format compta) ✓');
 });
 
 // ---------------------------------------------------------------
