@@ -590,6 +590,19 @@
     </div>
 
     <div class="card">
+      <h2>Importer des retraits (CSV, import en masse)</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Pour ajouter d'un coup plusieurs retraits (ex : historique bancaire). Colonnes attendues :
+        Date;Libelle;Montant (montant en positif ou négatif, peu importe). Les lignes dont le libellé
+        contient "frais" sont ignorées automatiquement. Les lignes identiques à un crédit déjà
+        enregistré (même date + montant + libellé) sont ignorées pour éviter les doublons.
+      </p>
+      <input type="file" id="import-retraits-file" accept=".csv,text/csv" style="margin-bottom:10px;">
+      <button class="btn btn-primary btn-block" id="btn-import-retraits">Importer les retraits</button>
+      <div id="import-retraits-summary" style="font-size:0.85rem; color:var(--ink-soft); margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
       <h2>Registre de caisse</h2>
       <div class="row">
         <div class="field">
@@ -1574,6 +1587,58 @@ document.getElementById('btn-export-caisse').addEventListener('click', ()=>{
   a.href = url; a.download = `zikak_caisse_${from||'debut'}_a_${to||'fin'}.csv`;
   a.click(); URL.revokeObjectURL(url);
   showToast('Registre exporté ✓');
+});
+
+// ---------------------------------------------------------------
+// IMPORT CSV — retraits cash (import en masse dans les crédits)
+// ---------------------------------------------------------------
+document.getElementById('btn-import-retraits').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('import-retraits-file');
+  const summaryEl = document.getElementById('import-retraits-summary');
+  const file = fileInput.files[0];
+  if(!file){ showToast('⚠ Choisis un fichier CSV'); return; }
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if(rows.length===0){ showToast('⚠ Fichier vide ou illisible'); return; }
+
+  let imported=0, skippedDup=0, skippedInvalid=0, skippedFrais=0;
+  const existingSig = new Set(mouvementsCredit.map(c=>
+    [c.date, Math.round((c.montant||0)*100), stripAccents((c.note||'').trim().toLowerCase())].join('|')
+  ));
+  const nouveauxCredits = [];
+
+  rows.forEach(row=>{
+    const date = parseFrDate(row['date']);
+    const libelle = (row['libelle'] ?? row['libellé'] ?? row['note'] ?? '').trim();
+    let montant = parseFrNumber(row['montant']);
+    if(montant!==null) montant = Math.abs(montant);
+
+    if(!date || !libelle || montant===null || montant<=0){ skippedInvalid++; return; }
+    if(stripAccents(libelle.toLowerCase()).includes('frais')){ skippedFrais++; return; }
+
+    const montantR = Math.round(montant*100)/100;
+    const sig = [date, Math.round(montantR*100), stripAccents(libelle.toLowerCase())].join('|');
+    if(existingSig.has(sig)){ skippedDup++; return; }
+    existingSig.add(sig);
+
+    nouveauxCredits.push({ id: uid(), date, montant: montantR, note: libelle });
+    imported++;
+  });
+
+  try{
+    await batchWrite(COL.credits, nouveauxCredits);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de l\'import — vérifie ta connexion et réessaie');
+    return;
+  }
+
+  summaryEl.innerHTML = `${imported} retrait(s) importé(s) · ${skippedDup} doublon(s) ignoré(s)` +
+    (skippedFrais ? ` · ${skippedFrais} ligne(s) de frais ignorée(s)` : '') +
+    (skippedInvalid ? ` · ${skippedInvalid} ligne(s) invalide(s) ignorée(s)` : '');
+  fileInput.value = '';
+  showToast('Import des retraits terminé ✓');
 });
 
 // ---------------------------------------------------------------
