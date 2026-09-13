@@ -558,6 +558,24 @@
       </div>
     </div>
     <div class="card">
+      <h2>Fusionner deux articles</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Pour le cas où le même produit a été enregistré deux fois sous des noms différents
+        (ex : "Fruits et légumes (reconstitution caisse)" et "Fruits et légumes (reconstitution carnet)").
+        Tous les achats de l'article "à fusionner" sont réattribués à l'article "à conserver", puis
+        le doublon est supprimé.
+      </p>
+      <div class="field">
+        <label for="merge-art-source">Article à fusionner (sera supprimé)</label>
+        <select id="merge-art-source"></select>
+      </div>
+      <div class="field">
+        <label for="merge-art-target">Article à conserver</label>
+        <select id="merge-art-target"></select>
+      </div>
+      <button class="btn btn-danger btn-block" id="btn-merge-art">Fusionner</button>
+    </div>
+    <div class="card">
       <h2>Liste des articles</h2>
       <div id="art-list"></div>
     </div>
@@ -726,6 +744,27 @@
         et d'articles ne sont pas touchées.
       </p>
       <button class="btn btn-danger btn-block" id="btn-reset-lignes" style="min-height:48px; font-size:0.95rem;">Effacer les achats enregistrés</button>
+    </div>
+
+    <div class="card">
+      <h2>Détecter les achats en double</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Recherche les lignes strictement identiques (même date, producteur, article, quantité et
+        prix) — typiquement causées par un import CSV fait deux fois. Rien n'est supprimé sans ta
+        confirmation, ligne par ligne.
+      </p>
+      <button class="btn btn-clay btn-block" id="btn-detect-dup">Rechercher les doublons</button>
+      <div id="dup-list" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Réparer les achats avec « article supprimé »</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Liste les achats dont l'article a été supprimé (au lieu de fusionné) — choisis un article de
+        remplacement pour chaque ligne concernée.
+      </p>
+      <button class="btn btn-clay btn-block" id="btn-detect-orphan-art">Rechercher les articles supprimés</button>
+      <div id="orphan-art-list" style="margin-top:14px;"></div>
     </div>
   </section>
 
@@ -1471,12 +1510,61 @@ function renderArtList(){
   el.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const a = articles.find(x=>x.id===btn.dataset.del);
-      if(!confirm(`Supprimer ${a.nom} ?`)) return;
+      const used = lignes.some(l=>l.articleId===btn.dataset.del);
+      const msg = used
+        ? `${a.nom} a des achats enregistrés. Le supprimer fera apparaître "Article supprimé" sur ces lignes au lieu du vrai nom. Utilise plutôt la fusion ci-dessus si tu veux renommer/regrouper cet article. Continuer quand même ?`
+        : `Supprimer ${a.nom} ?`;
+      if(!confirm(msg)) return;
       try{ await COL.articles.doc(btn.dataset.del).delete(); showToast('Enregistré ✓'); }
       catch(e){ console.error(e); showToast("⚠ Échec de la suppression — réessaie"); }
     });
   });
+  populateArtMergeSelects();
 }
+
+function populateArtMergeSelects(){
+  const srcSel = document.getElementById('merge-art-source');
+  const tgtSel = document.getElementById('merge-art-target');
+  const prevSrc = srcSel.value, prevTgt = tgtSel.value;
+  const opts = [...articles]
+    .sort((a,b)=> a.nom.localeCompare(b.nom))
+    .map(a=> `<option value="${a.id}">${escapeHtml(a.nom)}</option>`)
+    .join('');
+  srcSel.innerHTML = '<option value="">— choisir —</option>' + opts;
+  tgtSel.innerHTML = '<option value="">— choisir —</option>' + opts;
+  if(articles.some(a=>a.id===prevSrc)) srcSel.value = prevSrc;
+  if(articles.some(a=>a.id===prevTgt)) tgtSel.value = prevTgt;
+}
+
+document.getElementById('btn-merge-art').addEventListener('click', async ()=>{
+  const sourceId = document.getElementById('merge-art-source').value;
+  const targetId = document.getElementById('merge-art-target').value;
+  if(!sourceId || !targetId){ showToast('⚠ Choisis les deux articles'); return; }
+  if(sourceId===targetId){ showToast('⚠ Choisis deux articles différents'); return; }
+  const source = articles.find(a=>a.id===sourceId);
+  const target = articles.find(a=>a.id===targetId);
+  const nbLignes = lignes.filter(l=>l.articleId===sourceId).length;
+  if(!confirm(`Fusionner "${source.nom}" dans "${target.nom}" ? ${nbLignes} achat(s) seront réattribués à "${target.nom}", puis "${source.nom}" sera supprimé. Irréversible.`)) return;
+
+  const btn = document.getElementById('btn-merge-art');
+  btn.disabled = true;
+  try{
+    const idsToMove = lignes.filter(l=>l.articleId===sourceId).map(l=>l.id);
+    for(let i=0; i<idsToMove.length; i+=400){
+      const chunk = idsToMove.slice(i, i+400);
+      const batch = db.batch();
+      chunk.forEach(id=> batch.update(COL.lignes.doc(id), { articleId: targetId }));
+      await batch.commit();
+    }
+    await COL.articles.doc(sourceId).delete();
+    showToast(`Fusion terminée — ${nbLignes} achat(s) réattribué(s) ✓`);
+  }catch(e){
+    console.error(e);
+    showToast('⚠ Échec de la fusion — vérifie ta connexion et réessaie');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // ---------------------------------------------------------------
 // CAISSE tab
@@ -1749,7 +1837,10 @@ document.getElementById('btn-generer-facture').addEventListener('click', async (
       const a = articles.find(x=>x.id===l.articleId);
       return {
         date: l.date,
-        designation: (a ? a.nom + (a.origine ? ' (Origine : ' + a.origine + ')' : '') : 'Article supprimé') + ' — ' + l.qte + ' ' + (a?a.unite:'') + ' × ' + fmtEUR(l.prixUnitaire),
+        designation: a ? a.nom : 'Article supprimé',
+        unite: a ? a.unite : '',
+        qte: l.qte,
+        prixUnitaire: l.prixUnitaire,
         montant: l.montant,
       };
     });
@@ -1786,8 +1877,18 @@ function ouvrirFacturePourImpression(f){
     <tr>
       <td>${fmtDateFR(l.date)}</td>
       <td>${escapeHtml(l.designation)}</td>
+      <td style="text-align:right;">${l.qte} ${escapeHtml(l.unite||'')}</td>
+      <td style="text-align:right;">${fmtEUR(l.prixUnitaire)}</td>
       <td style="text-align:right;">${fmtEUR(l.montant)}</td>
     </tr>`).join('');
+  const fournisseurAdresse = (p && p.adresse) ? `<div class="lv">${escapeHtml(p.adresse)}</div>` : '';
+  const fournisseurSiret = (p && p.siret) ? `<div class="lv">SIRET : ${escapeHtml(p.siret)}</div>` : '';
+  const manquants = [];
+  if(!(p && p.adresse)) manquants.push('adresse');
+  if(!(p && p.siret)) manquants.push('SIRET');
+  const fournisseurCachet = manquants.length
+    ? `<div class="lv" style="font-style:italic; color:#5A5648;">(${manquants.join(' et ')} du fournisseur : cf. cachet ci-dessous)</div>`
+    : '';
   win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
     <title>Facture ${f.numero}</title>
     <style>
@@ -1799,11 +1900,14 @@ function ouvrirFacturePourImpression(f){
       .cols{display:flex; gap:24px; margin:18px 0;}
       .cols div{flex:1;}
       .cols h3{color:#1F4E3D; font-size:0.85rem; margin-bottom:6px;}
-      table{width:100%; border-collapse:collapse; margin-top:16px; font-size:0.88rem;}
+      table{width:100%; border-collapse:collapse; margin-top:16px; font-size:0.85rem;}
+      thead{display:table-header-group;}
+      tr{page-break-inside:avoid;}
       th{background:#1F4E3D; color:#fff; padding:8px; text-align:left;}
       td{padding:7px 8px; border-bottom:1px solid #D8D2BF;}
-      tfoot td{font-weight:bold; background:#F2F2F2;}
-      .tvamention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:14px;}
+      .total-block{margin-top:10px; text-align:right; font-weight:bold; font-size:1rem; padding:10px 8px; background:#F2F2F2;}
+      .origine-mention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:14px;}
+      .tvamention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:4px;}
       .sig{display:flex; justify-content:space-between; margin-top:50px; font-size:0.85rem;}
       @media print{ button{display:none;} }
     </style></head><body>
@@ -1821,17 +1925,20 @@ function ouvrirFacturePourImpression(f){
       </div>
       <div><h3>FOURNISSEUR</h3>
         <div class="lv">${escapeHtml(f.nomFacturationSnapshot)}</div>
-        <div class="lv" style="font-style:italic; color:#5A5648;">(adresse et SIRET du fournisseur : cf. cachet ci-dessous)</div>
+        ${fournisseurAdresse}
+        ${fournisseurSiret}
+        ${fournisseurCachet}
       </div>
     </div>
     <table>
-      <thead><tr><th>Date</th><th>Désignation</th><th style="text-align:right;">Montant</th></tr></thead>
+      <thead><tr><th>Date</th><th>Désignation</th><th style="text-align:right;">Quantité</th><th style="text-align:right;">Prix unitaire</th><th style="text-align:right;">Montant</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td></td><td>TOTAL</td><td style="text-align:right;">${fmtEUR(f.total)}</td></tr></tfoot>
     </table>
+    <div class="total-block">TOTAL HT : ${fmtEUR(f.total)}</div>
+    <div class="origine-mention">Produits d'origine Martinique, sauf mention contraire.</div>
     <div class="tvamention">${escapeHtml(f.tva)}</div>
     <div class="sig">
-      <div>Fait à Martinique, le ${fmtDateFR(f.dateEmission)}</div>
+      <div>Fait à Saint-Joseph, le ${fmtDateFR(f.dateEmission)}</div>
       <div><b>Cachet et signature du fournisseur :</b><br><br><br></div>
     </div>
     </body></html>`);
@@ -2115,6 +2222,102 @@ document.getElementById('btn-reset-lignes').addEventListener('click', async ()=>
     console.error(e);
     showToast('⚠ Échec de la suppression — vérifie ta connexion et réessaie');
   }
+});
+
+// ---------------------------------------------------------------
+// Détection des doublons d'achats (même date+producteur+article+qté+prix)
+// ---------------------------------------------------------------
+document.getElementById('btn-detect-dup').addEventListener('click', ()=>{
+  const groups = {};
+  lignes.forEach(l=>{
+    const key = [l.date, l.producteurId, l.articleId, l.qte, l.prixUnitaire].join('|');
+    (groups[key] = groups[key] || []).push(l);
+  });
+  const dupGroups = Object.values(groups).filter(g=>g.length>1);
+  const el = document.getElementById('dup-list');
+  if(dupGroups.length===0){
+    el.innerHTML = `<div class="empty">Aucun doublon détecté ✓</div>`;
+    return;
+  }
+  const totalExtra = dupGroups.reduce((s,g)=>s+g.length-1, 0);
+  el.innerHTML = `<p style="font-size:0.85rem; margin-bottom:10px;">
+      ${dupGroups.length} groupe(s) de doublons trouvé(s), soit ${totalExtra} ligne(s) en trop.
+    </p>` + dupGroups.map((g,gi)=>{
+    const p = producteurs.find(x=>x.id===g[0].producteurId);
+    const a = articles.find(x=>x.id===g[0].articleId);
+    return `<div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(p?p.nomAffiche:'producteur supprimé')} — ${escapeHtml(a?a.nom:'article supprimé')}</div>
+        <div class="meta">${fmtDateFR(g[0].date)} · ${g[0].qte} × ${fmtEUR(g[0].prixUnitaire)} = ${fmtEUR(g[0].montant)} · ${g.length} exemplaires</div>
+      </div>
+      <div class="actions"><button data-dupgroup="${gi}" class="btn-danger" style="border-color:var(--line); color:var(--danger);">Garder 1, supprimer ${g.length-1}</button></div>
+    </div>`;
+  }).join('') + `<button class="btn btn-danger btn-block" id="btn-dedupe-all" style="margin-top:12px;">Tout nettoyer d'un coup (${totalExtra} ligne(s))</button>`;
+
+  const dedupeGroup = async (g)=>{
+    const idsToDelete = g.slice(1).map(l=>l.id);
+    await batchDelete(COL.lignes, idsToDelete);
+  };
+
+  el.querySelectorAll('[data-dupgroup]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const g = dupGroups[Number(btn.dataset.dupgroup)];
+      if(!confirm(`Supprimer ${g.length-1} exemplaire(s) en trop de cette ligne ?`)) return;
+      try{ await dedupeGroup(g); showToast('Doublons supprimés ✓'); document.getElementById('btn-detect-dup').click(); }
+      catch(e){ console.error(e); showToast('⚠ Échec — réessaie'); }
+    });
+  });
+  const allBtn = document.getElementById('btn-dedupe-all');
+  if(allBtn) allBtn.addEventListener('click', async ()=>{
+    if(!confirm(`Supprimer ${totalExtra} ligne(s) en double sur TOUS les groupes détectés ? Irréversible.`)) return;
+    allBtn.disabled = true;
+    try{
+      for(const g of dupGroups){ await dedupeGroup(g); }
+      showToast('Doublons supprimés ✓');
+      document.getElementById('btn-detect-dup').click();
+    }catch(e){ console.error(e); showToast('⚠ Échec — réessaie'); }
+    finally{ allBtn.disabled = false; }
+  });
+});
+
+// ---------------------------------------------------------------
+// Réparation des achats dont l'article a été supprimé
+// ---------------------------------------------------------------
+document.getElementById('btn-detect-orphan-art').addEventListener('click', ()=>{
+  const orphanes = lignes.filter(l=> !articles.some(a=>a.id===l.articleId));
+  const el = document.getElementById('orphan-art-list');
+  if(orphanes.length===0){
+    el.innerHTML = `<div class="empty">Aucun achat avec article supprimé ✓</div>`;
+    return;
+  }
+  const artOptions = [...articles].sort((a,b)=>a.nom.localeCompare(b.nom))
+    .map(a=>`<option value="${a.id}">${escapeHtml(a.nom)}</option>`).join('');
+  el.innerHTML = `<p style="font-size:0.85rem; margin-bottom:10px;">${orphanes.length} achat(s) concerné(s).</p>` +
+    orphanes.map(l=>{
+      const p = producteurs.find(x=>x.id===l.producteurId);
+      return `<div class="list-item">
+        <div class="info">
+          <div class="name">${escapeHtml(p?p.nomAffiche:'producteur supprimé')}</div>
+          <div class="meta">${fmtDateFR(l.date)} · ${l.qte} × ${fmtEUR(l.prixUnitaire)} = ${fmtEUR(l.montant)}</div>
+        </div>
+        <div class="actions">
+          <select data-fix-art-select="${l.id}" style="max-width:160px;"><option value="">— choisir un article —</option>${artOptions}</select>
+          <button data-fix-art="${l.id}">Corriger</button>
+        </div>
+      </div>`;
+    }).join('');
+  el.querySelectorAll('[data-fix-art]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const sel = el.querySelector(`[data-fix-art-select="${btn.dataset.fixArt}"]`);
+      const newArticleId = sel.value;
+      if(!newArticleId){ showToast('⚠ Choisis un article de remplacement'); return; }
+      try{
+        await COL.lignes.doc(btn.dataset.fixArt).update({ articleId: newArticleId });
+        showToast('Ligne corrigée ✓');
+        document.getElementById('btn-detect-orphan-art').click();
+      }catch(e){ console.error(e); showToast('⚠ Échec — réessaie'); }
+    });
+  });
 });
 
 // ---------------------------------------------------------------
