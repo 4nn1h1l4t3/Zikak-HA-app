@@ -367,6 +367,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.14.0/html2pdf.bundle.min.js"></script>
 
 <div id="login-screen">
   <div class="card">
@@ -679,6 +680,34 @@
     </div>
 
     <div class="card">
+      <h2>Générer plusieurs factures en PDF</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Coche les producteurs, choisis une période commune, et un PDF est généré et téléchargé
+        automatiquement pour chacun (nom de fichier : facture + producteur + période).
+      </p>
+      <div class="row">
+        <div class="field">
+          <label for="fab-from">Du</label>
+          <input type="date" id="fab-from">
+        </div>
+        <div class="field">
+          <label for="fab-to">Au</label>
+          <input type="date" id="fab-to">
+        </div>
+      </div>
+      <div class="field">
+        <input type="text" id="fab-search" placeholder="Filtrer la liste...">
+      </div>
+      <div class="row" style="margin-bottom:6px;">
+        <button class="btn btn-ghost" id="fab-select-all" type="button">Tout cocher</button>
+        <button class="btn btn-ghost" id="fab-select-none" type="button">Tout décocher</button>
+      </div>
+      <div id="fab-list" style="max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:6px;"></div>
+      <button class="btn btn-primary btn-block" id="btn-generer-factures-bulk" style="margin-top:12px;">Générer les PDF sélectionnés</button>
+      <div id="fab-progress" style="margin-top:12px; font-size:0.85rem;"></div>
+    </div>
+
+    <div class="card">
       <h2>Factures émises</h2>
       <div id="fa-list"></div>
     </div>
@@ -765,6 +794,16 @@
       </p>
       <button class="btn btn-clay btn-block" id="btn-detect-orphan-art">Rechercher les articles supprimés</button>
       <div id="orphan-art-list" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Détecter les retraits/crédits en double</h2>
+      <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
+        Même principe que pour les achats, mais côté crédits de caisse (retraits importés) — un import
+        fait deux fois gonflerait le solde de caisse sans que ça se voie dans les achats.
+      </p>
+      <button class="btn btn-clay btn-block" id="btn-detect-dup-credit">Rechercher les doublons de crédits</button>
+      <div id="dup-credit-list" style="margin-top:14px;"></div>
     </div>
   </section>
 
@@ -869,7 +908,7 @@ function onSyncError(e){
 function attachListeners(){
   COL.producteurs.onSnapshot(snap=>{
     producteurs = snap.docs.map(d=>d.data());
-    refreshSaisieSelects(); renderProdList(); renderLedger(); renderCaisse(); renderFacturesList();
+    refreshSaisieSelects(); renderProdList(); renderLedger(); renderCaisse(); renderFacturesList(); renderFabList();
   }, onSyncError);
   COL.articles.onSnapshot(snap=>{
     articles = snap.docs.map(d=>d.data());
@@ -877,7 +916,7 @@ function attachListeners(){
   }, onSyncError);
   COL.lignes.onSnapshot(snap=>{
     lignes = snap.docs.map(d=>d.data());
-    renderLedger(); renderExportSummary(); renderCaisse();
+    renderLedger(); renderExportSummary(); renderCaisse(); renderFabList();
   }, onSyncError);
   COL.credits.onSnapshot(snap=>{
     mouvementsCredit = snap.docs.map(d=>d.data());
@@ -1819,17 +1858,7 @@ async function genererEtEnregistrerFacture(factureSansNumero){
   });
 }
 
-document.getElementById('btn-generer-facture').addEventListener('click', async ()=>{
-  const btn = document.getElementById('btn-generer-facture');
-  const producteurId = document.getElementById('fa-producteur').value;
-  const from = document.getElementById('fa-from').value;
-  const to = document.getElementById('fa-to').value;
-  if(!producteurId){ showToast('⚠ Choisis un producteur'); return; }
-  const p = producteurs.find(x=>x.id===producteurId);
-  if(!p){ showToast('⚠ Producteur introuvable'); return; }
-  if(!p.nomFacturation){ showToast('⚠ Nom de facturation non confirmé pour ce producteur'); return; }
-  if(!from || !to){ showToast('⚠ Renseigne une période'); return; }
-
+function buildLignesFactureEtTotal(producteurId, from, to){
   const lignesFacture = lignes
     .filter(l=> l.producteurId===producteurId && l.date>=from && l.date<=to)
     .sort((a,b)=> a.date.localeCompare(b.date))
@@ -1844,12 +1873,26 @@ document.getElementById('btn-generer-facture').addEventListener('click', async (
         montant: l.montant,
       };
     });
+  const total = Math.round(lignesFacture.reduce((s,l)=>s+l.montant,0)*100)/100;
+  return { lignesFacture, total };
+}
 
+document.getElementById('btn-generer-facture').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btn-generer-facture');
+  const producteurId = document.getElementById('fa-producteur').value;
+  const from = document.getElementById('fa-from').value;
+  const to = document.getElementById('fa-to').value;
+  if(!producteurId){ showToast('⚠ Choisis un producteur'); return; }
+  const p = producteurs.find(x=>x.id===producteurId);
+  if(!p){ showToast('⚠ Producteur introuvable'); return; }
+  if(!p.nomFacturation){ showToast('⚠ Nom de facturation non confirmé pour ce producteur'); return; }
+  if(!from || !to){ showToast('⚠ Renseigne une période'); return; }
+
+  const { lignesFacture, total } = buildLignesFactureEtTotal(producteurId, from, to);
   if(lignesFacture.length===0){ showToast('⚠ Aucun achat pour ce producteur sur cette période'); return; }
 
   btn.disabled = true;
   try{
-    const total = Math.round(lignesFacture.reduce((s,l)=>s+l.montant,0)*100)/100;
     const facture = await genererEtEnregistrerFacture({
       id: uid(), producteurId,
       nomFacturationSnapshot: p.nomFacturation,
@@ -1869,10 +1912,32 @@ document.getElementById('btn-generer-facture').addEventListener('click', async (
   }
 });
 
-function ouvrirFacturePourImpression(f){
+const FACTURE_STYLE = `
+  body{font-family:Georgia,serif; color:#26241D; padding:30px; max-width:700px; margin:0 auto;}
+  h1{color:#1F4E3D; font-size:1.5rem; margin-bottom:4px;}
+  .mention{font-size:0.8rem; color:#5A5648; font-style:italic; margin-bottom:18px;}
+  .lv{font-size:0.85rem; margin:2px 0;}
+  .lv b{display:inline-block; min-width:150px;}
+  .cols{display:flex; gap:24px; margin:18px 0;}
+  .cols div{flex:1;}
+  .cols h3{color:#1F4E3D; font-size:0.85rem; margin-bottom:6px;}
+  table{width:100%; border-collapse:collapse; margin-top:16px; font-size:0.85rem;}
+  thead{display:table-header-group;}
+  tr{page-break-inside:avoid;}
+  th{background:#1F4E3D; color:#fff; padding:8px; text-align:left;}
+  td{padding:7px 8px; border-bottom:1px solid #D8D2BF;}
+  .total-block{margin-top:10px; text-align:right; font-weight:bold; font-size:1rem; padding:10px 8px; background:#F2F2F2;}
+  .origine-mention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:14px;}
+  .tvamention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:4px;}
+  .sig{display:flex; justify-content:space-between; margin-top:50px; font-size:0.85rem;}
+  @media print{ button{display:none;} }
+`;
+
+// Construit le contenu HTML d'une facture (hors <html>/<head>/<body>) —
+// réutilisé pour l'aperçu à l'écran (fenêtre séparée) et pour la génération
+// PDF en masse (rendu hors-écran par html2pdf).
+function buildFactureBodyHtml(f, includePrintButton){
   const p = producteurs.find(x=>x.id===f.producteurId);
-  const win = window.open('', '_blank');
-  if(!win){ showToast('⚠ Autorise les pop-ups pour imprimer la facture'); return; }
   const rows = f.lignes.map(l=>`
     <tr>
       <td>${fmtDateFR(l.date)}</td>
@@ -1889,29 +1954,8 @@ function ouvrirFacturePourImpression(f){
   const fournisseurCachet = manquants.length
     ? `<div class="lv" style="font-style:italic; color:#5A5648;">(${manquants.join(' et ')} du fournisseur : cf. cachet ci-dessous)</div>`
     : '';
-  win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-    <title>Facture ${f.numero}</title>
-    <style>
-      body{font-family:Georgia,serif; color:#26241D; padding:30px; max-width:700px; margin:0 auto;}
-      h1{color:#1F4E3D; font-size:1.5rem; margin-bottom:4px;}
-      .mention{font-size:0.8rem; color:#5A5648; font-style:italic; margin-bottom:18px;}
-      .lv{font-size:0.85rem; margin:2px 0;}
-      .lv b{display:inline-block; min-width:150px;}
-      .cols{display:flex; gap:24px; margin:18px 0;}
-      .cols div{flex:1;}
-      .cols h3{color:#1F4E3D; font-size:0.85rem; margin-bottom:6px;}
-      table{width:100%; border-collapse:collapse; margin-top:16px; font-size:0.85rem;}
-      thead{display:table-header-group;}
-      tr{page-break-inside:avoid;}
-      th{background:#1F4E3D; color:#fff; padding:8px; text-align:left;}
-      td{padding:7px 8px; border-bottom:1px solid #D8D2BF;}
-      .total-block{margin-top:10px; text-align:right; font-weight:bold; font-size:1rem; padding:10px 8px; background:#F2F2F2;}
-      .origine-mention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:14px;}
-      .tvamention{font-size:0.78rem; color:#5A5648; font-style:italic; margin-top:4px;}
-      .sig{display:flex; justify-content:space-between; margin-top:50px; font-size:0.85rem;}
-      @media print{ button{display:none;} }
-    </style></head><body>
-    <button onclick="window.print()" style="margin-bottom:16px; padding:8px 14px;">Imprimer / Enregistrer en PDF</button>
+  return `
+    ${includePrintButton ? '<button onclick="window.print()" style="margin-bottom:16px; padding:8px 14px;">Imprimer / Enregistrer en PDF</button>' : ''}
     <h1>FACTURE D'ACHAT</h1>
     <div class="mention">Facture établie par l'acheteur au nom et pour le compte du fournisseur, conformément à l'article 289-I-2 du Code Général des Impôts (auto-facturation).</div>
     <div class="lv"><b>N° de facture</b> ${f.numero}</div>
@@ -1940,10 +1984,127 @@ function ouvrirFacturePourImpression(f){
     <div class="sig">
       <div>Fait à Saint-Joseph, le ${fmtDateFR(f.dateEmission)}</div>
       <div><b>Cachet et signature du fournisseur :</b><br><br><br></div>
-    </div>
-    </body></html>`);
+    </div>`;
+}
+
+function ouvrirFacturePourImpression(f){
+  const win = window.open('', '_blank');
+  if(!win){ showToast('⚠ Autorise les pop-ups pour imprimer la facture'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+    <title>Facture ${f.numero}</title>
+    <style>${FACTURE_STYLE}</style></head><body>${buildFactureBodyHtml(f, true)}</body></html>`);
   win.document.close();
 }
+
+// Nom de fichier sûr : accents retirés, ponctuation remplacée par des tirets.
+function safeFileName(s){
+  return stripAccents(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g,'');
+}
+
+// Génère le PDF d'une facture déjà créée, hors-écran, et déclenche son
+// téléchargement. Retourne une Promise résolue une fois le fichier généré.
+function genererPdfFacture(f){
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '700px';
+  container.innerHTML = `<style>${FACTURE_STYLE}</style><div>${buildFactureBodyHtml(f, false)}</div>`;
+  document.body.appendChild(container);
+  const p = producteurs.find(x=>x.id===f.producteurId);
+  const nomFichier = `Facture_${f.numero}_${safeFileName(p?p.nomAffiche:'producteur')}_${f.periodeDebut}_${f.periodeFin}.pdf`;
+  return html2pdf().from(container).set({
+    filename: nomFichier,
+    margin: 10,
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'] },
+  }).save().finally(()=> container.remove());
+}
+
+// ---------------------------------------------------------------
+// Génération multiple de factures (PDF téléchargés automatiquement)
+// ---------------------------------------------------------------
+document.getElementById('fab-from').value = todayISO();
+document.getElementById('fab-to').value = todayISO();
+
+function renderFabList(){
+  const el = document.getElementById('fab-list');
+  const term = stripAccents(document.getElementById('fab-search').value);
+  const eligibles = producteurs
+    .filter(p=> p.nomFacturation)
+    .filter(p=> !term || stripAccents(p.nomAffiche).includes(term) || stripAccents(p.nomFacturation).includes(term))
+    .sort((a,b)=> a.nomAffiche.localeCompare(b.nomAffiche));
+  if(eligibles.length===0){
+    el.innerHTML = `<div class="empty" style="padding:10px;">Aucun producteur avec un nom de facturation confirmé.</div>`;
+    return;
+  }
+  const from = document.getElementById('fab-from').value;
+  const to = document.getElementById('fab-to').value;
+  // Conserve les cases déjà cochées lors d'un re-rendu (recherche, période)
+  const dejaCoches = new Set([...el.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value));
+  el.innerHTML = eligibles.map(p=>{
+    const nb = (from && to) ? lignes.filter(l=> l.producteurId===p.id && l.date>=from && l.date<=to).length : null;
+    const vide = nb===0;
+    return `<label style="display:flex; align-items:center; gap:8px; padding:6px 4px; ${vide?'opacity:0.5;':''}">
+      <input type="checkbox" value="${p.id}" ${dejaCoches.has(p.id)?'checked':''}>
+      <span style="flex:1;">${escapeHtml(p.nomAffiche)}</span>
+      <span style="font-size:0.78rem; color:var(--ink-soft);">${nb===null?'':(vide?'aucun achat':nb+' achat(s)')}</span>
+    </label>`;
+  }).join('');
+}
+document.getElementById('fab-search').addEventListener('input', renderFabList);
+document.getElementById('fab-from').addEventListener('change', renderFabList);
+document.getElementById('fab-to').addEventListener('change', renderFabList);
+document.getElementById('fab-select-all').addEventListener('click', ()=>{
+  document.querySelectorAll('#fab-list input[type=checkbox]').forEach(c=>c.checked=true);
+});
+document.getElementById('fab-select-none').addEventListener('click', ()=>{
+  document.querySelectorAll('#fab-list input[type=checkbox]').forEach(c=>c.checked=false);
+});
+
+document.getElementById('btn-generer-factures-bulk').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btn-generer-factures-bulk');
+  const from = document.getElementById('fab-from').value;
+  const to = document.getElementById('fab-to').value;
+  const progressEl = document.getElementById('fab-progress');
+  if(!from || !to){ showToast('⚠ Renseigne une période'); return; }
+  const ids = [...document.querySelectorAll('#fab-list input[type=checkbox]:checked')].map(c=>c.value);
+  if(ids.length===0){ showToast('⚠ Coche au moins un producteur'); return; }
+
+  btn.disabled = true;
+  const results = [];
+  for(const producteurId of ids){
+    const p = producteurs.find(x=>x.id===producteurId);
+    progressEl.innerHTML = `Génération en cours… (${results.length+1}/${ids.length}) ${escapeHtml(p.nomAffiche)}`;
+    const { lignesFacture, total } = buildLignesFactureEtTotal(producteurId, from, to);
+    if(lignesFacture.length===0){
+      results.push({ p, status: 'skip', msg: 'aucun achat sur la période' });
+      continue;
+    }
+    try{
+      const facture = await genererEtEnregistrerFacture({
+        id: uid(), producteurId,
+        nomFacturationSnapshot: p.nomFacturation,
+        periodeDebut: from, periodeFin: to,
+        dateEmission: todayISO(),
+        lignes: lignesFacture, total,
+        tva: p.tva || 'TVA non applicable, article 293 B du CGI',
+        annulee: false,
+      });
+      await genererPdfFacture(facture);
+      results.push({ p, status: 'ok', msg: facture.numero });
+    }catch(e){
+      console.error(e);
+      results.push({ p, status: 'error', msg: 'échec' });
+    }
+  }
+  btn.disabled = false;
+  const nbOk = results.filter(r=>r.status==='ok').length;
+  progressEl.innerHTML = `<p style="font-weight:bold; margin-bottom:6px;">${nbOk} PDF généré(s) et téléchargé(s) sur ${ids.length}.</p>` +
+    results.map(r=> `<div>${r.status==='ok'?'✅':r.status==='skip'?'⏭️':'⚠️'} ${escapeHtml(r.p.nomAffiche)} — ${escapeHtml(r.msg)}</div>`).join('');
+  showToast(`${nbOk}/${ids.length} facture(s) générée(s) ✓`);
+});
 
 function renderFacturesList(){
   const el = document.getElementById('fa-list');
@@ -2317,6 +2478,62 @@ document.getElementById('btn-detect-orphan-art').addEventListener('click', ()=>{
         document.getElementById('btn-detect-orphan-art').click();
       }catch(e){ console.error(e); showToast('⚠ Échec — réessaie'); }
     });
+  });
+});
+
+// ---------------------------------------------------------------
+// Détection des doublons de crédits (retraits importés en double)
+// ---------------------------------------------------------------
+document.getElementById('btn-detect-dup-credit').addEventListener('click', ()=>{
+  const groups = {};
+  mouvementsCredit.forEach(c=>{
+    const key = [c.date, Math.round((c.montant||0)*100), stripAccents((c.note||'').trim().toLowerCase())].join('|');
+    (groups[key] = groups[key] || []).push(c);
+  });
+  const dupGroups = Object.values(groups).filter(g=>g.length>1);
+  const el = document.getElementById('dup-credit-list');
+  if(dupGroups.length===0){
+    el.innerHTML = `<div class="empty">Aucun doublon de crédit détecté ✓</div>`;
+    return;
+  }
+  const totalExtra = dupGroups.reduce((s,g)=>s+g.length-1, 0);
+  const totalExtraMontant = dupGroups.reduce((s,g)=> s + g[0].montant*(g.length-1), 0);
+  el.innerHTML = `<p style="font-size:0.85rem; margin-bottom:10px;">
+      ${dupGroups.length} groupe(s) de doublons trouvé(s), soit ${totalExtra} ligne(s) en trop
+      (${fmtEUR(totalExtraMontant)} de crédit en trop au total).
+    </p>` + dupGroups.map((g,gi)=>{
+    return `<div class="list-item">
+      <div class="info">
+        <div class="name">${escapeHtml(g[0].note||'(sans note)')}</div>
+        <div class="meta">${fmtDateFR(g[0].date)} · ${fmtEUR(g[0].montant)} · ${g.length} exemplaires</div>
+      </div>
+      <div class="actions"><button data-dupcredit="${gi}" class="btn-danger" style="border-color:var(--line); color:var(--danger);">Garder 1, supprimer ${g.length-1}</button></div>
+    </div>`;
+  }).join('') + `<button class="btn btn-danger btn-block" id="btn-dedupe-credit-all" style="margin-top:12px;">Tout nettoyer d'un coup (${totalExtra} ligne(s), ${fmtEUR(totalExtraMontant)})</button>`;
+
+  const dedupeGroup = async (g)=>{
+    const idsToDelete = g.slice(1).map(c=>c.id);
+    await batchDelete(COL.credits, idsToDelete);
+  };
+
+  el.querySelectorAll('[data-dupcredit]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const g = dupGroups[Number(btn.dataset.dupcredit)];
+      if(!confirm(`Supprimer ${g.length-1} exemplaire(s) en trop de ce crédit ?`)) return;
+      try{ await dedupeGroup(g); showToast('Doublons supprimés ✓'); document.getElementById('btn-detect-dup-credit').click(); }
+      catch(e){ console.error(e); showToast('⚠ Échec — réessaie'); }
+    });
+  });
+  const allBtn = document.getElementById('btn-dedupe-credit-all');
+  if(allBtn) allBtn.addEventListener('click', async ()=>{
+    if(!confirm(`Supprimer ${totalExtra} crédit(s) en double sur TOUS les groupes détectés (${fmtEUR(totalExtraMontant)}) ? Irréversible.`)) return;
+    allBtn.disabled = true;
+    try{
+      for(const g of dupGroups){ await dedupeGroup(g); }
+      showToast('Doublons supprimés ✓');
+      document.getElementById('btn-detect-dup-credit').click();
+    }catch(e){ console.error(e); showToast('⚠ Échec — réessaie'); }
+    finally{ allBtn.disabled = false; }
   });
 });
 
