@@ -1,7 +1,7 @@
 // ZIKAK — Service worker : cache-first pour un fonctionnement 100% hors-ligne.
 // À chaque mise à jour de l'appli, monte CACHE_VERSION pour forcer le
 // rechargement des fichiers chez tous les marchands qui l'utilisent.
-const CACHE_VERSION = 'zikak-v14';
+const CACHE_VERSION = 'zikak-v16';
 const CROSS_ORIGIN_ASSETS = [
   'https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js',
