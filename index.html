@@ -651,6 +651,7 @@
       </div>
       <div id="caisse-ledger"></div>
       <button class="btn btn-clay btn-block" id="btn-export-caisse" style="margin-top:12px;">Exporter le registre en CSV</button>
+      <button class="btn btn-clay btn-block" id="btn-export-caisse-xlsx" style="margin-top:8px;">Exporter au format compta (Excel .xlsx)</button>
       <button class="btn btn-clay btn-block" id="btn-export-caisse-compta" style="margin-top:8px;">Exporter au format compta (CSV)</button>
       <p style="font-size:0.8rem; color:var(--ink-soft); margin-top:10px;">
         Le 2e bouton reproduit les colonnes du classeur de caisse historique (DATE RGLT / N° FACTURE /
@@ -1683,7 +1684,14 @@ function allMouvements(){
     id: c.id, date: c.date, type: 'credit', montant: c.montant,
     label: c.note ? c.note : 'Crédit',
   }));
-  return [...debits, ...credits].sort((a,b)=> a.date===b.date ? 0 : (a.date<b.date?-1:1));
+  // Même jour : les crédits (retraits) passent avant les débits (achats),
+  // car le cash est retiré avant d'aller payer les producteurs — évite un
+  // solde négatif artificiel en cours de journée.
+  return [...debits, ...credits].sort((a,b)=>{
+    if(a.date!==b.date) return a.date<b.date ? -1 : 1;
+    if(a.type!==b.type) return a.type==='credit' ? -1 : 1;
+    return 0;
+  });
 }
 
 document.getElementById('btn-add-credit').addEventListener('click', async ()=>{
@@ -1766,25 +1774,20 @@ document.getElementById('btn-export-caisse').addEventListener('click', ()=>{
   showToast('Registre exporté ✓');
 });
 
-document.getElementById('btn-export-caisse-compta').addEventListener('click', ()=>{
-  const from = elCFrom.value, to = elCTo.value;
+// Construit les lignes du registre au format compta (partagé CSV / Excel).
+// Retourne null si aucun mouvement sur la période.
+function buildRegistreCompta(from, to){
   const { rows } = mouvementsAvecSolde(from, to);
-  if(rows.length===0){ showToast('⚠ Aucun mouvement sur cette période'); return; }
-  const header = ['DATE RGLT','N° FACTURE (CARNET/PAGE)','FOURNISSEUR / CLIENT','ARTICLES','DÉBIT EUR','CRÉDIT EUR','SOLDE EUR'];
+  if(rows.length===0) return null;
   // Solde de début : solde juste avant le premier mouvement de la période
   // (= solde initial si l'export part du début de l'historique).
   const first = rows[0];
   const soldeDebut = first.solde - (first.type==='credit' ? first.montant : -first.montant);
-  const ligneDebut = [
-    fmtDateFR(from || first.date), '', 'Solde de début de caisse', '', '', '',
-    soldeDebut.toFixed(2).replace('.',','),
-  ];
   const sansNomOfficiel = new Set();
-  const csvRows = rows.map(m=>{
+  const lignesReg = rows.map(m=>{
     const isCredit = m.type==='credit';
     // Convention du classeur historique : les retraits/crédits sont toujours
-    // libellés "Retrait Cash" en colonne FOURNISSEUR/CLIENT, quel que soit le
-    // libellé détaillé enregistré dans l'appli.
+    // libellés "Retrait Cash" en colonne FOURNISSEUR/CLIENT.
     // Pour les achats : nom officiel de facturation, à défaut le nom court.
     let fournisseurClient = 'Retrait Cash';
     if(!isCredit){
@@ -1792,27 +1795,100 @@ document.getElementById('btn-export-caisse-compta').addEventListener('click', ()
       if(p && p.nomFacturation){ fournisseurClient = p.nomFacturation; }
       else { fournisseurClient = p ? p.nomAffiche : '(producteur supprimé)'; sansNomOfficiel.add(fournisseurClient); }
     }
-    return [
-      fmtDateFR(m.date),
-      '',
-      fournisseurClient,
-      isCredit ? '' : 'Fruits et légumes',
-      isCredit ? '' : m.montant.toFixed(2).replace('.',','),
-      isCredit ? m.montant.toFixed(2).replace('.',',') : '',
-      m.solde.toFixed(2).replace('.',','),
-    ];
+    return {
+      date: m.date, fournisseurClient,
+      article: isCredit ? '' : 'Fruits et légumes',
+      debit: isCredit ? null : m.montant,
+      credit: isCredit ? m.montant : null,
+      solde: m.solde,
+    };
   });
-  const csv = [header, ligneDebut, ...csvRows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
+  return { dateDebut: from || first.date, soldeDebut, lignesReg, sansNomOfficiel };
+}
+
+const HEADER_COMPTA = ['DATE RGLT','N° FACTURE (CARNET/PAGE)','FOURNISSEUR / CLIENT','ARTICLES','DÉBIT EUR','CRÉDIT EUR','SOLDE EUR'];
+
+function finExportCompta(sansNomOfficiel, label){
+  if(sansNomOfficiel.size){
+    alert(`Export fait ✓\n\nAttention : ${sansNomOfficiel.size} producteur(s) sans nom officiel de facturation, exporté(s) sous leur nom court :\n${[...sansNomOfficiel].join(', ')}\n\nComplète leur nom dans l'onglet Producteurs puis ré-exporte.`);
+  } else {
+    showToast(`Registre exporté (${label}) ✓`);
+  }
+}
+
+document.getElementById('btn-export-caisse-compta').addEventListener('click', ()=>{
+  const from = elCFrom.value, to = elCTo.value;
+  const reg = buildRegistreCompta(from, to);
+  if(!reg){ showToast('⚠ Aucun mouvement sur cette période'); return; }
+  const n = v => v===null ? '' : v.toFixed(2).replace('.',',');
+  const ligneDebut = [fmtDateFR(reg.dateDebut), '', 'Solde de début de caisse', '', '', '', n(reg.soldeDebut)];
+  const csvRows = reg.lignesReg.map(l=>[
+    fmtDateFR(l.date), '', l.fournisseurClient, l.article, n(l.debit), n(l.credit), n(l.solde),
+  ]);
+  const csv = [HEADER_COMPTA, ligneDebut, ...csvRows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `zikak_caisse_format_compta_${from||'debut'}_a_${to||'fin'}.csv`;
   a.click(); URL.revokeObjectURL(url);
-  if(sansNomOfficiel.size){
-    alert(`Export fait ✓\n\nAttention : ${sansNomOfficiel.size} producteur(s) sans nom officiel de facturation, exporté(s) sous leur nom court :\n${[...sansNomOfficiel].join(', ')}\n\nComplète leur nom dans l'onglet Producteurs puis ré-exporte.`);
-  } else {
-    showToast('Registre exporté (format compta) ✓');
+  finExportCompta(reg.sansNomOfficiel, 'format compta CSV');
+});
+
+// Export Excel : montants = vrais nombres, dates = vraies dates, solde =
+// formule cascadée (=solde précédent - débit + crédit), comme dans le
+// fichier de caisse historique. S'affiche correctement quel que soit le
+// logiciel ou la langue de l'ordinateur (contrairement au CSV).
+// La librairie SheetJS n'est chargée qu'au premier clic.
+let xlsxLibPromise = null;
+function loadXlsxLib(){
+  if(window.XLSX) return Promise.resolve();
+  if(!xlsxLibPromise){
+    xlsxLibPromise = new Promise((resolve, reject)=>{
+      const sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      sc.onload = ()=> resolve();
+      sc.onerror = ()=>{ xlsxLibPromise = null; reject(new Error('xlsx')); };
+      document.head.appendChild(sc);
+    });
   }
+  return xlsxLibPromise;
+}
+function excelSerial(iso){
+  const [y,m,d] = iso.split('-').map(Number);
+  return (Date.UTC(y, m-1, d) - Date.UTC(1899, 11, 30)) / 86400000;
+}
+
+document.getElementById('btn-export-caisse-xlsx').addEventListener('click', async ()=>{
+  const from = elCFrom.value, to = elCTo.value;
+  const reg = buildRegistreCompta(from, to);
+  if(!reg){ showToast('⚠ Aucun mouvement sur cette période'); return; }
+  try{ await loadXlsxLib(); }
+  catch(e){ showToast('⚠ Export Excel indisponible hors connexion — utilise le CSV'); return; }
+
+  const FMT_DATE = 'dd/mm/yyyy', FMT_EUR = '#,##0.00';
+  const ws = {};
+  const put = (r, c, cell)=>{ ws[XLSX.utils.encode_cell({r, c})] = cell; };
+  HEADER_COMPTA.forEach((h, c)=> put(0, c, {t:'s', v:h}));
+  // Ligne 2 (index 1) : solde de début (valeur fixe)
+  put(1, 0, {t:'n', v:excelSerial(reg.dateDebut), z:FMT_DATE});
+  put(1, 2, {t:'s', v:'Solde de début de caisse'});
+  put(1, 6, {t:'n', v:Math.round(reg.soldeDebut*100)/100, z:FMT_EUR});
+  reg.lignesReg.forEach((l, i)=>{
+    const r = i + 2, xl = r + 1; // xl = numéro de ligne Excel
+    put(r, 0, {t:'n', v:excelSerial(l.date), z:FMT_DATE});
+    put(r, 2, {t:'s', v:l.fournisseurClient});
+    if(l.article) put(r, 3, {t:'s', v:l.article});
+    if(l.debit!==null) put(r, 4, {t:'n', v:l.debit, z:FMT_EUR});
+    if(l.credit!==null) put(r, 5, {t:'n', v:l.credit, z:FMT_EUR});
+    put(r, 6, {t:'n', v:Math.round(l.solde*100)/100, f:`G${xl-1}-E${xl}+F${xl}`, z:FMT_EUR});
+  });
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0, c:0}, e:{r:reg.lignesReg.length+1, c:6}});
+  ws['!cols'] = [{wch:12},{wch:14},{wch:30},{wch:18},{wch:12},{wch:12},{wch:12}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Caisse');
+  XLSX.writeFile(wb, `zikak_caisse_format_compta_${from||'debut'}_a_${to||'fin'}.xlsx`);
+  finExportCompta(reg.sansNomOfficiel, 'Excel');
 });
 
 // ---------------------------------------------------------------
