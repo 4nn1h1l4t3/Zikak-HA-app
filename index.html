@@ -353,6 +353,14 @@
   #sync-status{font-size:0.72rem; color:var(--green-pale); opacity:0.85;}
   body:not(.authed) header.app, body:not(.authed) nav.tabs, body:not(.authed) main{display:none;}
   body.authed #login-screen{display:none;}
+  /* Accès lecture seule (comptable) : masque tout ce qui modifie les données.
+     Le vrai verrou est côté serveur (règles Firestore) ; ceci n'est que l'interface. */
+  body.readonly .rw,
+  body.readonly [data-del], body.readonly [data-edit], body.readonly [data-del-credit],
+  body.readonly [data-void], body.readonly [data-fix-art], body.readonly [data-fix-art-select]{display:none !important;}
+  #ro-banner{display:none; background:#FFF4D6; color:#6B4E00; border-bottom:1px solid #E9D48A;
+    font-size:0.82rem; text-align:center; padding:7px 10px;}
+  body.readonly #ro-banner{display:block;}
 
   @media (max-width:520px){
     .brand h1{font-size:1.05rem;}
@@ -397,6 +405,7 @@
   <button id="btn-logout" title="Se déconnecter" style="background:none; border:1px solid rgba(255,255,255,0.4); color:var(--white); border-radius:6px; padding:5px 9px; font-size:0.72rem; cursor:pointer;">Déconnexion</button>
 </header>
 
+<div id="ro-banner">👁 Accès en lecture seule — consultation et exports uniquement</div>
 <nav class="tabs">
   <button data-tab="saisie" class="active">Saisie</button>
   <button data-tab="producteurs">Producteurs</button>
@@ -410,7 +419,7 @@
 
   <!-- ===================== SAISIE ===================== -->
   <section class="tabpanel active" id="tab-saisie">
-    <div class="card">
+    <div class="card rw">
       <h2>Nouvel achat</h2>
       <div class="field">
         <label for="f-date">Date</label>
@@ -469,7 +478,7 @@
 
   <!-- ===================== PRODUCTEURS ===================== -->
   <section class="tabpanel" id="tab-producteurs">
-    <div class="card">
+    <div class="card rw">
       <h2 id="prod-form-title">Ajouter un producteur</h2>
       <div class="field">
         <label for="p-nomaffiche">Nom affiché (carnet) *</label>
@@ -498,7 +507,7 @@
         <button class="btn btn-ghost" id="btn-cancel-prod" style="display:none;">Annuler</button>
       </div>
     </div>
-    <div class="card">
+    <div class="card rw">
       <h2>Fusionner deux producteurs</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Pour le cas où le même fournisseur a été enregistré deux fois sous des noms différents.
@@ -527,7 +536,7 @@
 
   <!-- ===================== ARTICLES ===================== -->
   <section class="tabpanel" id="tab-articles">
-    <div class="card">
+    <div class="card rw">
       <h2 id="art-form-title">Ajouter un article</h2>
       <div class="row">
         <div class="field">
@@ -558,7 +567,7 @@
         <button class="btn btn-ghost" id="btn-cancel-art" style="display:none;">Annuler</button>
       </div>
     </div>
-    <div class="card">
+    <div class="card rw">
       <h2>Fusionner deux articles</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Pour le cas où le même produit a été enregistré deux fois sous des noms différents
@@ -596,7 +605,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Ajouter un crédit (recharge de cash)</h2>
       <div class="row">
         <div class="field">
@@ -615,7 +624,7 @@
       <button class="btn btn-primary btn-block" id="btn-add-credit">Ajouter le crédit</button>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Importer des retraits (CSV, import en masse)</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Pour ajouter d'un coup plusieurs retraits (ex : historique bancaire). Colonnes attendues :
@@ -653,7 +662,7 @@
 
   <!-- ===================== FACTURES ===================== -->
   <section class="tabpanel" id="tab-factures">
-    <div class="card">
+    <div class="card rw">
       <h2>Générer une facture</h2>
       <div class="field combo-field">
         <label for="fa-producteur-input">Producteur</label>
@@ -679,7 +688,7 @@
       </p>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Générer plusieurs factures en PDF</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Coche les producteurs, choisis une période commune, et un PDF est généré et téléchargé
@@ -724,9 +733,11 @@
         réinstallation.
       </p>
       <button class="btn btn-primary btn-block" id="btn-backup">Télécharger la sauvegarde (JSON)</button>
+      <div class="rw">
       <p style="font-size:0.8rem; color:var(--ink-soft); margin:14px 0 6px;">Importer une sauvegarde (ajoute/écrase avec ces données, sur tous les appareils connectés) :</p>
       <input type="file" id="restore-file" accept=".json,application/json" style="margin-bottom:10px;">
       <button class="btn btn-danger btn-block" id="btn-restore" style="min-height:48px; font-size:0.95rem;">Importer la sauvegarde</button>
+      </div>
     </div>
 
     <div class="card">
@@ -751,7 +762,7 @@
       </p>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Importer un CSV (historique)</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Réimporte un CSV au même format que l'export (Date;Fournisseur;Produit;Quantité;Unité;
@@ -765,7 +776,7 @@
       <div id="import-summary" style="font-size:0.85rem; color:var(--ink-soft); margin-top:10px;"></div>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Maintenance</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         À utiliser seulement si des lignes affichent « producteur supprimé » ou « article supprimé »
@@ -775,7 +786,7 @@
       <button class="btn btn-danger btn-block" id="btn-reset-lignes" style="min-height:48px; font-size:0.95rem;">Effacer les achats enregistrés</button>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Détecter les achats en double</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Recherche les lignes strictement identiques (même date, producteur, article, quantité et
@@ -786,7 +797,7 @@
       <div id="dup-list" style="margin-top:14px;"></div>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Réparer les achats avec « article supprimé »</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Liste les achats dont l'article a été supprimé (au lieu de fusionné) — choisis un article de
@@ -796,7 +807,7 @@
       <div id="orphan-art-list" style="margin-top:14px;"></div>
     </div>
 
-    <div class="card">
+    <div class="card rw">
       <h2>Détecter les retraits/crédits en double</h2>
       <p style="font-size:0.85rem; color:var(--ink-soft); margin-bottom:12px;">
         Même principe que pour les achats, mais côté crédits de caisse (retraits importés) — un import
@@ -884,8 +895,21 @@ document.getElementById('btn-logout').addEventListener('click', ()=>{
 });
 
 let appStarted = false;
+// Comptes autorisés à modifier les données. Tout autre compte connecté
+// (ex : comptable) est en lecture seule. À garder identique à la liste
+// ADMINS des règles Firestore (le vrai verrou côté serveur).
+const ADMIN_EMAILS = ['anne.zikak@gmail.com'];
+let isReadOnly = false;
+
 auth.onAuthStateChanged(user=>{
   if(user){
+    isReadOnly = !ADMIN_EMAILS.includes((user.email||'').toLowerCase());
+    document.body.classList.toggle('readonly', isReadOnly);
+    document.getElementById('c-solde-initial').disabled = isReadOnly;
+    if(isReadOnly){
+      const t = document.querySelector('nav.tabs button[data-tab="caisse"]');
+      if(t) t.click();
+    }
     document.body.classList.add('authed');
     if(!appStarted){ appStarted = true; startApp(); }
   }else{
@@ -899,6 +923,11 @@ function docId(x){ return x.id; }
 // Écoute temps réel : chaque collection met à jour le tableau local et
 // redessine les vues concernées dès qu'un changement arrive — que ce soit
 // depuis cet appareil ou depuis l'autre.
+window.addEventListener('unhandledrejection', ev=>{
+  if(ev.reason && ev.reason.code==='permission-denied'){
+    showToast('⚠ Accès en lecture seule — modification refusée');
+  }
+});
 function onSyncError(e){
   console.error('Erreur de synchronisation', e);
   const el = document.getElementById('savestatus');
@@ -963,6 +992,7 @@ async function readLegacyLocalData(){
   });
 }
 async function maybeOfferLegacyMigration(){
+  if(isReadOnly) return;
   if(localStorage.getItem('zikak_cloud_migrated')) return;
   let cloudHasData = false;
   try{
@@ -1741,12 +1771,27 @@ document.getElementById('btn-export-caisse-compta').addEventListener('click', ()
   const { rows } = mouvementsAvecSolde(from, to);
   if(rows.length===0){ showToast('⚠ Aucun mouvement sur cette période'); return; }
   const header = ['DATE RGLT','N° FACTURE (CARNET/PAGE)','FOURNISSEUR / CLIENT','ARTICLES','DÉBIT EUR','CRÉDIT EUR','SOLDE EUR'];
+  // Solde de début : solde juste avant le premier mouvement de la période
+  // (= solde initial si l'export part du début de l'historique).
+  const first = rows[0];
+  const soldeDebut = first.solde - (first.type==='credit' ? first.montant : -first.montant);
+  const ligneDebut = [
+    fmtDateFR(from || first.date), '', 'Solde de début de caisse', '', '', '',
+    soldeDebut.toFixed(2).replace('.',','),
+  ];
+  const sansNomOfficiel = new Set();
   const csvRows = rows.map(m=>{
     const isCredit = m.type==='credit';
     // Convention du classeur historique : les retraits/crédits sont toujours
     // libellés "Retrait Cash" en colonne FOURNISSEUR/CLIENT, quel que soit le
     // libellé détaillé enregistré dans l'appli.
-    const fournisseurClient = isCredit ? 'Retrait Cash' : m.label.replace(/^Achat — /, '');
+    // Pour les achats : nom officiel de facturation, à défaut le nom court.
+    let fournisseurClient = 'Retrait Cash';
+    if(!isCredit){
+      const p = producteurs.find(x=>x.id===m.producteurId);
+      if(p && p.nomFacturation){ fournisseurClient = p.nomFacturation; }
+      else { fournisseurClient = p ? p.nomAffiche : '(producteur supprimé)'; sansNomOfficiel.add(fournisseurClient); }
+    }
     return [
       fmtDateFR(m.date),
       '',
@@ -1757,13 +1802,17 @@ document.getElementById('btn-export-caisse-compta').addEventListener('click', ()
       m.solde.toFixed(2).replace('.',','),
     ];
   });
-  const csv = [header, ...csvRows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
+  const csv = [header, ligneDebut, ...csvRows].map(r=>r.map(csvEscape).join(';')).join('\r\n');
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `zikak_caisse_format_compta_${from||'debut'}_a_${to||'fin'}.csv`;
   a.click(); URL.revokeObjectURL(url);
-  showToast('Registre exporté (format compta) ✓');
+  if(sansNomOfficiel.size){
+    alert(`Export fait ✓\n\nAttention : ${sansNomOfficiel.size} producteur(s) sans nom officiel de facturation, exporté(s) sous leur nom court :\n${[...sansNomOfficiel].join(', ')}\n\nComplète leur nom dans l'onglet Producteurs puis ré-exporte.`);
+  } else {
+    showToast('Registre exporté (format compta) ✓');
+  }
 });
 
 // ---------------------------------------------------------------
